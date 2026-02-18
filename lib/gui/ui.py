@@ -334,12 +334,18 @@ class AppUI:
         self._refresh()
 
     def _toggle_autostart(self) -> None:
-        self.s.is_auto_start = self.chk_autostart.get() != 0
-        if self.s.is_auto_start:
-            enable_autostart(Path(__file__).resolve().parents[1] / "main.py")
-        else:
-            disable_autostart()
-        self.store.save(self.s)
+        want_enable = self.chk_autostart.get() != 0
+        try:
+            if want_enable:
+                enable_autostart()
+            else:
+                disable_autostart()
+            self.s.is_auto_start = want_enable
+            self.store.save(self.s)
+        except Exception as exc:
+            self.log.event("SYS", "AutoStart", "toggleFail", f"enable={int(want_enable)} err={exc}")
+            messagebox.showerror("開機自啟", f"設定失敗：{exc}")
+            self.chk_autostart.set(1 if self.s.is_auto_start else 0)
 
     def _toggle_cursor_lock(self) -> None:
         self.s.is_cursor_lock = self.chk_cursor_lock.get() != 0

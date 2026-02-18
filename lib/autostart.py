@@ -3,12 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 import ctypes
 from ctypes import wintypes
+import os
+import subprocess
+import sys
 
 
-def enable_autostart(target_path: Path) -> None:
+def enable_autostart(target_path: Path | None = None) -> None:
     link = _startup_link_path()
     link.parent.mkdir(parents=True, exist_ok=True)
-    _create_shortcut(link, target_path, target_path.parent)
+    resolved_target, args, work_dir = _resolve_launch_target(target_path)
+    _create_shortcut(link, resolved_target, work_dir, args)
+    if not link.exists():
+        raise RuntimeError(f"shortcut not created: {link}")
 
 
 def disable_autostart() -> None:
@@ -19,6 +25,9 @@ def disable_autostart() -> None:
 
 
 def _startup_link_path() -> Path:
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "NikkeWitchcraftStarter.lnk"
     return (
         Path.home()
         / "AppData"
@@ -32,7 +41,36 @@ def _startup_link_path() -> Path:
     )
 
 
-def _create_shortcut(link_path: Path, target_path: Path, work_dir: Path) -> None:
+def _resolve_launch_target(target_path: Path | None) -> tuple[Path, str, Path]:
+    if target_path is not None:
+        tp = Path(target_path).resolve()
+        return tp, "", tp.parent
+
+    if getattr(sys, "frozen", False):
+        exe = Path(sys.executable).resolve()
+        return exe, "", exe.parent
+
+    script = Path(__file__).resolve().parents[1] / "main.py"
+    exe = Path(sys.executable).resolve()
+    if exe.name.lower() == "python.exe":
+        pyw = exe.with_name("pythonw.exe")
+        if pyw.exists():
+            exe = pyw
+    args = f'"{script}"'
+    return exe, args, script.parent
+
+
+def _create_shortcut(link_path: Path, target_path: Path, work_dir: Path, arguments: str = "") -> None:
+    try:
+        _create_shortcut_com(link_path, target_path, work_dir, arguments)
+    except Exception:
+        pass
+    if link_path.exists():
+        return
+    _create_shortcut_powershell(link_path, target_path, work_dir, arguments)
+
+
+def _create_shortcut_com(link_path: Path, target_path: Path, work_dir: Path, arguments: str = "") -> None:
     ole32 = ctypes.WinDLL("ole32", use_last_error=True)
     ole32.CoInitialize.argtypes = [ctypes.c_void_p]
     ole32.CoInitialize.restype = ctypes.c_long
@@ -60,26 +98,51 @@ def _create_shortcut(link_path: Path, target_path: Path, work_dir: Path) -> None
             ctypes.byref(psl),
         )
         if hr < 0 or not psl:
-            return
+            raise OSError(f"CoCreateInstance failed: hr={hr}")
         try:
             link = ctypes.cast(psl, ctypes.POINTER(IShellLinkW))
-            link.contents.lpVtbl.contents.SetPath(link, str(target_path))
-            link.contents.lpVtbl.contents.SetWorkingDirectory(link, str(work_dir))
+            if link.contents.lpVtbl.contents.SetPath(link, str(target_path)) < 0:
+                raise OSError("SetPath failed")
+            if link.contents.lpVtbl.contents.SetWorkingDirectory(link, str(work_dir)) < 0:
+                raise OSError("SetWorkingDirectory failed")
+            if arguments:
+                if link.contents.lpVtbl.contents.SetArguments(link, arguments) < 0:
+                    raise OSError("SetArguments failed")
             ppf = ctypes.c_void_p()
             hr = link.contents.lpVtbl.contents.QueryInterface(
                 link, ctypes.byref(IID_IPersistFile), ctypes.byref(ppf)
             )
             if hr < 0 or not ppf:
-                return
+                raise OSError(f"QueryInterface(IPersistFile) failed: hr={hr}")
             try:
                 pf = ctypes.cast(ppf, ctypes.POINTER(IPersistFile))
-                pf.contents.lpVtbl.contents.Save(pf, str(link_path), True)
+                if pf.contents.lpVtbl.contents.Save(pf, str(link_path), True) < 0:
+                    raise OSError("IPersistFile.Save failed")
             finally:
                 pf.contents.lpVtbl.contents.Release(pf)
         finally:
             link.contents.lpVtbl.contents.Release(link)
     finally:
         ole32.CoUninitialize()
+
+
+def _create_shortcut_powershell(link_path: Path, target_path: Path, work_dir: Path, arguments: str = "") -> None:
+    def esc(text: str) -> str:
+        return text.replace("'", "''")
+
+    ps = (
+        "$W = New-Object -ComObject WScript.Shell; "
+        f"$S = $W.CreateShortcut('{esc(str(link_path))}'); "
+        f"$S.TargetPath = '{esc(str(target_path))}'; "
+        f"$S.WorkingDirectory = '{esc(str(work_dir))}'; "
+        f"$S.Arguments = '{esc(arguments)}'; "
+        "$S.Save()"
+    )
+    subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-Command", ps],
+        check=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
 
 
 class GUID(ctypes.Structure):
@@ -124,7 +187,7 @@ class IShellLinkWVtbl(ctypes.Structure):
         ("GetWorkingDirectory", ctypes.c_void_p),
         ("SetWorkingDirectory", ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.POINTER(IShellLinkW), wintypes.LPCWSTR)),
         ("GetArguments", ctypes.c_void_p),
-        ("SetArguments", ctypes.c_void_p),
+        ("SetArguments", ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.POINTER(IShellLinkW), wintypes.LPCWSTR)),
         ("GetHotkey", ctypes.c_void_p),
         ("SetHotkey", ctypes.c_void_p),
         ("GetShowCmd", ctypes.c_void_p),
