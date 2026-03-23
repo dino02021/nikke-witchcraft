@@ -15,6 +15,13 @@ class Actions:
     def is_context_enabled(self) -> bool:
         return self.s.is_global_hotkeys or winapi.is_foreground_exe("nikke.exe")
 
+    def run_single_map(self, trigger_key: str, output_key: str, stop_ev: threading.Event) -> None:
+        self._press_key(output_key)
+        # Keep the worker alive until release so a held trigger does not retrigger.
+        while self.hk.should_run(trigger_key, stop_ev):
+            if not self.hk.wait_ms_cancel(10, trigger_key, stop_ev):
+                break
+
     def run_spam(self, trigger_key: str, output_key: str, stop_ev: threading.Event) -> None:
         while self.hk.should_run(trigger_key, stop_ev):
             self._press_key(output_key)

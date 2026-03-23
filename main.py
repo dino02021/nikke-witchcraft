@@ -82,6 +82,8 @@ def main() -> None:
     _app_state["hk"] = hk
     actions = Actions(settings, hk)
 
+    hk.define(HotkeyDef("EscMap", settings.key_esc, settings.is_esc_enabled,
+                        lambda stop: actions.run_single_map(settings.key_esc, "esc", stop)))
     hk.define(HotkeyDef("DSpam", settings.key_spam_d, settings.is_spam_d_enabled,
                         lambda stop: actions.run_spam(settings.key_spam_d, "d", stop)))
     hk.define(HotkeyDef("SSpam", settings.key_spam_s, settings.is_spam_s_enabled,

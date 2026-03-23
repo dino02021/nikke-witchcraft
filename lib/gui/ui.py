@@ -87,13 +87,14 @@ class AppUI:
 
         create_entry_label(bind_frame, "按鍵綁定：", row=0, column=0)
         hotkey_frame = create_entry_frame(bind_frame, row=1, column=0)
-        self._row_hotkey(hotkey_frame, 1, "D連點：", "DSpam")
-        self._row_hotkey(hotkey_frame, 2, "S連點：", "SSpam")
-        self._row_hotkey(hotkey_frame, 3, "A連點：", "ASpam")
-        self._row_click(hotkey_frame, 4, "連點1：", "ClickSeq1")
-        self._row_click(hotkey_frame, 5, "連點2：", "ClickSeq2")
-        self._row_click(hotkey_frame, 6, "連點3：", "ClickSeq3")
-        self._row_jitter(hotkey_frame, 7, "抖槍術：")
+        self._row_hotkey(hotkey_frame, 1, "ESC：", "EscMap")
+        self._row_hotkey(hotkey_frame, 2, "D連點：", "DSpam")
+        self._row_hotkey(hotkey_frame, 3, "S連點：", "SSpam")
+        self._row_hotkey(hotkey_frame, 4, "A連點：", "ASpam")
+        self._row_click(hotkey_frame, 5, "連點1：", "ClickSeq1")
+        self._row_click(hotkey_frame, 6, "連點2：", "ClickSeq2")
+        self._row_click(hotkey_frame, 7, "連點3：", "ClickSeq3")
+        self._row_jitter(hotkey_frame, 8, "抖槍術：")
         row += 1
 
         self._add_separator(container, row)
@@ -251,7 +252,9 @@ class AppUI:
             self._bind_tip = None
         if not hid:
             return
-        if hid == "DSpam":
+        if hid == "EscMap":
+            self.s.key_esc = key_name
+        elif hid == "DSpam":
             self.s.key_spam_d = key_name
         elif hid == "SSpam":
             self.s.key_spam_s = key_name
@@ -271,7 +274,9 @@ class AppUI:
 
     def _toggle_enabled(self, hid: str, var: tk.IntVar) -> None:
         val = var.get() != 0
-        if hid == "DSpam":
+        if hid == "EscMap":
+            self.s.is_esc_enabled = val
+        elif hid == "DSpam":
             self.s.is_spam_d_enabled = val
         elif hid == "SSpam":
             self.s.is_spam_s_enabled = val
@@ -396,6 +401,7 @@ class AppUI:
         self._refresh()
 
     def _apply_hotkey_defs(self) -> None:
+        self.hk.update_key("EscMap", self.s.key_esc)
         self.hk.update_key("DSpam", self.s.key_spam_d)
         self.hk.update_key("SSpam", self.s.key_spam_s)
         self.hk.update_key("ASpam", self.s.key_spam_a)
@@ -404,6 +410,7 @@ class AppUI:
         self.hk.update_key("ClickSeq3", self.s.key_click3)
         self.hk.update_key("Jitter", self.s.key_jitter)
 
+        self.hk.update_enabled("EscMap", self.s.is_esc_enabled)
         self.hk.update_enabled("DSpam", self.s.is_spam_d_enabled)
         self.hk.update_enabled("SSpam", self.s.is_spam_s_enabled)
         self.hk.update_enabled("ASpam", self.s.is_spam_a_enabled)
@@ -413,6 +420,7 @@ class AppUI:
         self.hk.update_enabled("Jitter", self.s.is_jitter_enabled)
 
     def _refresh(self) -> None:
+        self._hotkey_vars["EscMap"].set(self.s.key_esc)
         self._hotkey_vars["DSpam"].set(self.s.key_spam_d)
         self._hotkey_vars["SSpam"].set(self.s.key_spam_s)
         self._hotkey_vars["ASpam"].set(self.s.key_spam_a)
@@ -421,6 +429,7 @@ class AppUI:
         self._hotkey_vars["ClickSeq3"].set(self.s.key_click3)
         self._jitter_var.set(self.s.key_jitter)
 
+        self.chk_EscMap.set(1 if self.s.is_esc_enabled else 0)
         self.chk_DSpam.set(1 if self.s.is_spam_d_enabled else 0)
         self.chk_SSpam.set(1 if self.s.is_spam_s_enabled else 0)
         self.chk_ASpam.set(1 if self.s.is_spam_a_enabled else 0)
@@ -486,6 +495,7 @@ class AppUI:
 
     def _update_all_row_enabled(self) -> None:
         state_map = {
+            "EscMap": self.s.is_esc_enabled,
             "DSpam": self.s.is_spam_d_enabled,
             "SSpam": self.s.is_spam_s_enabled,
             "ASpam": self.s.is_spam_a_enabled,

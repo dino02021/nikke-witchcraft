@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NAME = "NikkeWitchcraft"
-APP_VERSION = "1.06"
+APP_VERSION = "1.07"
 APP_TITLE = f"{APP_NAME} v{APP_VERSION}"
 
 
@@ -21,6 +21,7 @@ class Settings:
     key_spam_delay_ms: int = 34
 
     # keys
+    key_esc: str = "F16"
     key_spam_d: str = "F13"
     key_spam_s: str = "F14"
     key_spam_a: str = "F15"
@@ -30,6 +31,7 @@ class Settings:
     key_jitter: str = "F20"
 
     # enable
+    is_esc_enabled: bool = False
     is_spam_d_enabled: bool = True
     is_spam_s_enabled: bool = True
     is_spam_a_enabled: bool = True
@@ -80,6 +82,7 @@ class ConfigStore:
             s.click3_gap_ms = getint("Delays", "Click3_GapMs", fallback=s.click3_gap_ms)
             s.key_spam_delay_ms = getint("Delays", "KeySpamDelayMs", fallback=s.key_spam_delay_ms)
         if cp.has_section("Keys"):
+            s.key_esc = get("Keys", "EscMap", fallback=s.key_esc)
             s.key_spam_d = get("Keys", "DSpam", fallback=s.key_spam_d)
             s.key_spam_s = get("Keys", "SSpam", fallback=s.key_spam_s)
             s.key_spam_a = get("Keys", "ASpam", fallback=s.key_spam_a)
@@ -88,6 +91,7 @@ class ConfigStore:
             s.key_click3 = get("Keys", "ClickSeq3", fallback=s.key_click3)
             s.key_jitter = get("Keys", "Jitter", fallback=get("Keys", "Panic", fallback=s.key_jitter))
         if cp.has_section("Enable"):
+            s.is_esc_enabled = getbool("Enable", "EscMap", fallback=s.is_esc_enabled)
             s.is_spam_d_enabled = getbool("Enable", "DSpam", fallback=s.is_spam_d_enabled)
             s.is_spam_s_enabled = getbool("Enable", "SSpam", fallback=s.is_spam_s_enabled)
             s.is_spam_a_enabled = getbool("Enable", "ASpam", fallback=s.is_spam_a_enabled)
@@ -123,6 +127,7 @@ class ConfigStore:
             "KeySpamDelayMs": str(s.key_spam_delay_ms),
         }
         cp["Keys"] = {
+            "EscMap": s.key_esc,
             "DSpam": s.key_spam_d,
             "SSpam": s.key_spam_s,
             "ASpam": s.key_spam_a,
@@ -132,6 +137,7 @@ class ConfigStore:
             "Jitter": s.key_jitter,
         }
         cp["Enable"] = {
+            "EscMap": str(int(s.is_esc_enabled)),
             "DSpam": str(int(s.is_spam_d_enabled)),
             "SSpam": str(int(s.is_spam_s_enabled)),
             "ASpam": str(int(s.is_spam_a_enabled)),
