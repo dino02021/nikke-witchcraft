@@ -14,8 +14,11 @@ class Actions:
         self._rhythm_lock = threading.Lock()
         self._rhythm_triggers_down: set[str] = set()
         self._rhythm_outputs_down: set[str] = set()
-        self._rhythm_space_latched = False
-        self._rhythm_space_latch_keys: set[str] = set()
+        self._rhythm_latch_keys: dict[str, set[str]] = {
+            "lshift": set(),
+            "rshift": set(),
+            "space": set(),
+        }
 
     def is_context_enabled(self) -> bool:
         return self.s.is_global_hotkeys or winapi.is_foreground_exe("nikke.exe")
@@ -93,7 +96,8 @@ class Actions:
                 self._rhythm_triggers_down.add(trigger)
             else:
                 self._rhythm_triggers_down.discard(trigger)
-                self._rhythm_space_latch_keys.discard(trigger)
+                for latch_keys in self._rhythm_latch_keys.values():
+                    latch_keys.discard(trigger)
             self._sync_rhythm_preset2_outputs()
 
     def release_rhythm_preset2(self) -> None:
@@ -103,8 +107,8 @@ class Actions:
                     winapi.send_key_up(output_key)
             self._rhythm_outputs_down.clear()
             self._rhythm_triggers_down.clear()
-            self._rhythm_space_latched = False
-            self._rhythm_space_latch_keys.clear()
+            for latch_keys in self._rhythm_latch_keys.values():
+                latch_keys.clear()
 
     def _key_from_name(self, name: str):
         n = name.strip().lower()
@@ -120,17 +124,19 @@ class Actions:
 
     def _sync_rhythm_preset2_outputs(self) -> None:
         down = self._rhythm_triggers_down
-        self._set_rhythm_output("lshift", {"a", "s"}.issubset(down))
-        self._set_rhythm_output("rshift", {";", "'"}.issubset(down))
+        self._sync_rhythm_latch("lshift", {"a", "s"}, down)
+        self._sync_rhythm_latch("rshift", {";", "'"}, down)
+        self._sync_rhythm_latch("space", {"a", "s", ";", "'"}, down)
 
-        all_triggers = {"a", "s", ";", "'"}
-        if all_triggers.issubset(down) and "space" not in self._rhythm_outputs_down:
-            self._rhythm_space_latched = True
-            self._rhythm_space_latch_keys = set(all_triggers)
-            self._set_rhythm_output("space", True)
-        elif self._rhythm_space_latched and not self._rhythm_space_latch_keys:
-            self._set_rhythm_output("space", False)
-            self._rhythm_space_latched = False
+    def _sync_rhythm_latch(self, output_key: str, trigger_keys: set[str], down: set[str]) -> None:
+        latch_keys = self._rhythm_latch_keys[output_key]
+        if trigger_keys.issubset(down) and output_key not in self._rhythm_outputs_down:
+            latch_keys.clear()
+            latch_keys.update(trigger_keys)
+            self._set_rhythm_output(output_key, True)
+            return
+        if output_key in self._rhythm_outputs_down and not latch_keys:
+            self._set_rhythm_output(output_key, False)
 
     def _set_rhythm_output(self, output_key: str, should_hold: bool) -> None:
         if should_hold:

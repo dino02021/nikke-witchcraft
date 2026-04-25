@@ -57,7 +57,7 @@
 
 ## Rhythm mode PRESET 2
 - The fixed pass-through trigger keys are `a`, `s`, `;`, and `'`.
-- Holding `a` + `s` holds `lshift` while preserving the original key input.
-- Holding `;` + `'` holds `rshift` while preserving the original key input.
+- Holding `a` + `s` latches `lshift` until both original trigger keys are released.
+- Holding `;` + `'` latches `rshift` until both original trigger keys are released.
 - Holding all four trigger keys latches `space`; it releases only after the original four-key latch set is fully released.
 - These keys are registered as pass-through hotkeys, so PRESET 2 itself does not block native input.

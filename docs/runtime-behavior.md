@@ -32,6 +32,6 @@
 ## Rhythm mode PRESET 2
 - The option is stored as `General.RhythmPreset2` and defaults to disabled.
 - When enabled, PRESET 2 listens to `a`, `s`, `;`, and `'` as pass-through hotkeys.
-- `a` + `s` holds `lshift`, and `;` + `'` holds `rshift`; either Shift releases as soon as its pair is no longer held.
+- `a` + `s` latches `lshift`, and `;` + `'` latches `rshift`; each latched output releases only after its original trigger set is fully released.
 - Pressing all four trigger keys latches `space`; `space` stays held until the original four-key latch set is fully released, and later keydowns do not extend that latch.
 - Disabling the option, losing the active context, or shutting down the app releases any PRESET 2 output keys to avoid stuck Shift/Space state.
