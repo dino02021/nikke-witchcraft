@@ -35,3 +35,8 @@
 - `a` + `s` latches `lshift`, and `;` + `'` latches `rshift`; each latched output releases only after its original trigger set is fully released.
 - Pressing all four trigger keys latches `space`; `space` stays held until the original four-key latch set is fully released, and later keydowns do not extend that latch.
 - Disabling the option, losing the active context, or shutting down the app releases any PRESET 2 output keys to avoid stuck Shift/Space state.
+
+## General behavior toggles
+- `General.MinimizeToTray` defaults to enabled. When enabled, the window close button hides the UI to the tray; when disabled, the same close button shuts the app down.
+- `General.HotkeysPaused` defaults to disabled. When enabled, the configurable binding hotkeys are disabled and removed from blocking, so their original keys pass through normally.
+- Hotkeys pause applies to the binding rows only. Rhythm mode PRESET 2 is controlled separately by `General.RhythmPreset2`.

@@ -127,14 +127,18 @@ class AppUI:
         other_frame = create_entry_frame(opt_frame, row=1, column=0)
         self.chk_autostart = tk.IntVar()
         create_checkbutton(other_frame, "開機時自動啟動", self.chk_autostart, self._toggle_autostart, row=0, column=0)
+        self.chk_minimize_to_tray = tk.IntVar()
+        create_checkbutton(other_frame, "縮小至工具列", self.chk_minimize_to_tray, self._toggle_minimize_to_tray, row=1, column=0)
         self.chk_cursor_lock = tk.IntVar()
-        create_checkbutton(other_frame, "鎖定滑鼠於遊戲視窗內", self.chk_cursor_lock, self._toggle_cursor_lock, row=1, column=0)
+        create_checkbutton(other_frame, "鎖定滑鼠於遊戲視窗內", self.chk_cursor_lock, self._toggle_cursor_lock, row=2, column=0)
         self.chk_global_hotkeys = tk.IntVar()
-        create_checkbutton(other_frame, "全域啟用熱鍵", self.chk_global_hotkeys, self._toggle_global_hotkeys, row=2, column=0)
+        create_checkbutton(other_frame, "全域啟用熱鍵", self.chk_global_hotkeys, self._toggle_global_hotkeys, row=3, column=0)
         self.chk_rhythm_preset2 = tk.IntVar()
-        create_checkbutton(other_frame, "音遊模式 (PRESET 2)", self.chk_rhythm_preset2, self._toggle_rhythm_preset2, row=3, column=0)
+        create_checkbutton(other_frame, "音遊模式 (PRESET 2)", self.chk_rhythm_preset2, self._toggle_rhythm_preset2, row=4, column=0)
+        self.chk_hotkeys_paused = tk.IntVar()
+        create_checkbutton(other_frame, "暫停全熱鍵", self.chk_hotkeys_paused, self._toggle_hotkeys_paused, row=5, column=0)
 
-        btn_row = create_btn_frame(opt_frame, row=4, column=0)
+        btn_row = create_btn_frame(opt_frame, row=6, column=0)
         create_btn_between(btn_row, "開啟設定資料夾", self._open_settings, row=0, column=0, sticky="w", pady=ui.LABEL_PADY)
         create_btn_between(btn_row, "匯出設定", self._export_settings, row=0, column=1, sticky="w")
         create_btn_last(btn_row, "匯入設定", self._import_settings, row=0, column=2, sticky="w")
@@ -358,6 +362,10 @@ class AppUI:
         self.s.is_cursor_lock = self.chk_cursor_lock.get() != 0
         self.store.save(self.s)
 
+    def _toggle_minimize_to_tray(self) -> None:
+        self.s.is_minimize_to_tray = self.chk_minimize_to_tray.get() != 0
+        self.store.save(self.s)
+
     def _toggle_global_hotkeys(self) -> None:
         self.s.is_global_hotkeys = self.chk_global_hotkeys.get() != 0
         if not self.actions.is_context_enabled():
@@ -369,6 +377,14 @@ class AppUI:
         self._apply_hotkey_defs()
         if not self.s.is_rhythm_preset2_enabled:
             self.actions.release_rhythm_preset2()
+        self.store.save(self.s)
+
+    def _toggle_hotkeys_paused(self) -> None:
+        self.s.is_hotkeys_paused = self.chk_hotkeys_paused.get() != 0
+        if self.s.is_hotkeys_paused:
+            self._stop_binding_hotkeys()
+        self._apply_hotkey_defs()
+        self._update_all_row_enabled()
         self.store.save(self.s)
 
     def _apply_delays(self) -> None:
@@ -421,14 +437,15 @@ class AppUI:
         self.hk.update_key("ClickSeq3", self.s.key_click3)
         self.hk.update_key("Jitter", self.s.key_jitter)
 
-        self.hk.update_enabled("EscMap", self.s.is_esc_enabled)
-        self.hk.update_enabled("DSpam", self.s.is_spam_d_enabled)
-        self.hk.update_enabled("SSpam", self.s.is_spam_s_enabled)
-        self.hk.update_enabled("ASpam", self.s.is_spam_a_enabled)
-        self.hk.update_enabled("ClickSeq1", self.s.is_click1_enabled)
-        self.hk.update_enabled("ClickSeq2", self.s.is_click2_enabled)
-        self.hk.update_enabled("ClickSeq3", self.s.is_click3_enabled)
-        self.hk.update_enabled("Jitter", self.s.is_jitter_enabled)
+        binding_enabled = not self.s.is_hotkeys_paused
+        self.hk.update_enabled("EscMap", self.s.is_esc_enabled and binding_enabled)
+        self.hk.update_enabled("DSpam", self.s.is_spam_d_enabled and binding_enabled)
+        self.hk.update_enabled("SSpam", self.s.is_spam_s_enabled and binding_enabled)
+        self.hk.update_enabled("ASpam", self.s.is_spam_a_enabled and binding_enabled)
+        self.hk.update_enabled("ClickSeq1", self.s.is_click1_enabled and binding_enabled)
+        self.hk.update_enabled("ClickSeq2", self.s.is_click2_enabled and binding_enabled)
+        self.hk.update_enabled("ClickSeq3", self.s.is_click3_enabled and binding_enabled)
+        self.hk.update_enabled("Jitter", self.s.is_jitter_enabled and binding_enabled)
         for key in ("a", "s", ";", "'"):
             self.hk.update_enabled(f"RhythmPreset2_{key}", self.s.is_rhythm_preset2_enabled)
         if not self.s.is_rhythm_preset2_enabled:
@@ -465,9 +482,11 @@ class AppUI:
         self._delay_vars["ClickSeq3_gap"].set(str(self.s.click3_gap_ms))
 
         self.chk_autostart.set(1 if self.s.is_auto_start else 0)
+        self.chk_minimize_to_tray.set(1 if self.s.is_minimize_to_tray else 0)
         self.chk_cursor_lock.set(1 if self.s.is_cursor_lock else 0)
         self.chk_global_hotkeys.set(1 if self.s.is_global_hotkeys else 0)
         self.chk_rhythm_preset2.set(1 if self.s.is_rhythm_preset2_enabled else 0)
+        self.chk_hotkeys_paused.set(1 if self.s.is_hotkeys_paused else 0)
 
         self._apply_hotkey_defs()
         self._update_all_row_enabled()
@@ -511,21 +530,21 @@ class AppUI:
 
     def _update_all_row_enabled(self) -> None:
         state_map = {
-            "EscMap": self.s.is_esc_enabled,
-            "DSpam": self.s.is_spam_d_enabled,
-            "SSpam": self.s.is_spam_s_enabled,
-            "ASpam": self.s.is_spam_a_enabled,
-            "ClickSeq1": self.s.is_click1_enabled,
-            "ClickSeq2": self.s.is_click2_enabled,
-            "ClickSeq3": self.s.is_click3_enabled,
-            "Jitter": self.s.is_jitter_enabled,
+            "EscMap": self.s.is_esc_enabled and not self.s.is_hotkeys_paused,
+            "DSpam": self.s.is_spam_d_enabled and not self.s.is_hotkeys_paused,
+            "SSpam": self.s.is_spam_s_enabled and not self.s.is_hotkeys_paused,
+            "ASpam": self.s.is_spam_a_enabled and not self.s.is_hotkeys_paused,
+            "ClickSeq1": self.s.is_click1_enabled and not self.s.is_hotkeys_paused,
+            "ClickSeq2": self.s.is_click2_enabled and not self.s.is_hotkeys_paused,
+            "ClickSeq3": self.s.is_click3_enabled and not self.s.is_hotkeys_paused,
+            "Jitter": self.s.is_jitter_enabled and not self.s.is_hotkeys_paused,
         }
         for hid, enabled in state_map.items():
-            self._update_row_enabled(hid, enabled)
+            self._update_row_enabled(hid, enabled, disable_enable_checkbox=self.s.is_hotkeys_paused)
         for hid in ["ClickSeq1", "ClickSeq2", "ClickSeq3"]:
             self._update_delay_enabled(hid, state_map.get(hid, True))
 
-    def _update_row_enabled(self, hid: str, enabled: bool) -> None:
+    def _update_row_enabled(self, hid: str, enabled: bool, disable_enable_checkbox: bool = False) -> None:
         widgets = self._row_widgets.get(hid, [])
         state = "normal" if enabled else "disabled"
         for widget in widgets:
@@ -535,7 +554,7 @@ class AppUI:
                 elif isinstance(widget, ttk.Entry):
                     widget.configure(state="readonly" if enabled else "disabled")
                 elif isinstance(widget, ttk.Checkbutton):
-                    if widget.cget("text") != "啟用":
+                    if disable_enable_checkbox or widget.cget("text") != "啟用":
                         widget.configure(state=state)
                 elif isinstance(widget, ttk.Label):
                     widget.configure(state=state)
@@ -568,3 +587,15 @@ class AppUI:
                     widget.configure(foreground=("red" if enabled else "gray"))
             except Exception:
                 pass
+
+    def _stop_binding_hotkeys(self) -> None:
+        self.hk.stop_all_hotkeys([
+            "EscMap",
+            "DSpam",
+            "SSpam",
+            "ASpam",
+            "ClickSeq1",
+            "ClickSeq2",
+            "ClickSeq3",
+            "Jitter",
+        ])

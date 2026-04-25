@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 import queue
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional
 
 from .timing import wait_ms_cancel
 from .log import Logger
@@ -141,6 +141,14 @@ class HotkeyManager:
             ev = self._stop_flags.get(hotkey_id)
             if ev:
                 ev.set()
+
+    def stop_all_hotkeys(self, hotkey_ids: Iterable[str] | None = None) -> None:
+        with self._lock:
+            ids = set(hotkey_ids) if hotkey_ids is not None else set(self._stop_flags)
+            for hotkey_id in ids:
+                ev = self._stop_flags.get(hotkey_id)
+                if ev:
+                    ev.set()
 
     def should_run(self, key_name: str, stop_ev: threading.Event) -> bool:
         if stop_ev.is_set():

@@ -81,27 +81,28 @@ def main() -> None:
     )
     _app_state["hk"] = hk
     actions = Actions(settings, hk)
+    binding_enabled = not settings.is_hotkeys_paused
 
-    hk.define(HotkeyDef("EscMap", settings.key_esc, settings.is_esc_enabled,
+    hk.define(HotkeyDef("EscMap", settings.key_esc, settings.is_esc_enabled and binding_enabled,
                         lambda stop: actions.run_single_map(settings.key_esc, "esc", stop)))
-    hk.define(HotkeyDef("DSpam", settings.key_spam_d, settings.is_spam_d_enabled,
+    hk.define(HotkeyDef("DSpam", settings.key_spam_d, settings.is_spam_d_enabled and binding_enabled,
                         lambda stop: actions.run_spam(settings.key_spam_d, "d", stop)))
-    hk.define(HotkeyDef("SSpam", settings.key_spam_s, settings.is_spam_s_enabled,
+    hk.define(HotkeyDef("SSpam", settings.key_spam_s, settings.is_spam_s_enabled and binding_enabled,
                         lambda stop: actions.run_spam(settings.key_spam_s, "s", stop)))
-    hk.define(HotkeyDef("ASpam", settings.key_spam_a, settings.is_spam_a_enabled,
+    hk.define(HotkeyDef("ASpam", settings.key_spam_a, settings.is_spam_a_enabled and binding_enabled,
                         lambda stop: actions.run_spam(settings.key_spam_a, "a", stop)))
 
-    hk.define(HotkeyDef("ClickSeq1", settings.key_click1, settings.is_click1_enabled,
+    hk.define(HotkeyDef("ClickSeq1", settings.key_click1, settings.is_click1_enabled and binding_enabled,
                         lambda stop: actions.run_click(settings.key_click1, settings.click_btn1,
                                                        settings.click1_hold_ms, settings.click1_gap_ms, stop)))
-    hk.define(HotkeyDef("ClickSeq2", settings.key_click2, settings.is_click2_enabled,
+    hk.define(HotkeyDef("ClickSeq2", settings.key_click2, settings.is_click2_enabled and binding_enabled,
                         lambda stop: actions.run_click(settings.key_click2, settings.click_btn2,
                                                        settings.click2_hold_ms, settings.click2_gap_ms, stop)))
-    hk.define(HotkeyDef("ClickSeq3", settings.key_click3, settings.is_click3_enabled,
+    hk.define(HotkeyDef("ClickSeq3", settings.key_click3, settings.is_click3_enabled and binding_enabled,
                         lambda stop: actions.run_click(settings.key_click3, settings.click_btn3,
                                                        settings.click3_hold_ms, settings.click3_gap_ms, stop)))
 
-    hk.define(HotkeyDef("Jitter", settings.key_jitter, settings.is_jitter_enabled,
+    hk.define(HotkeyDef("Jitter", settings.key_jitter, settings.is_jitter_enabled and binding_enabled,
                         lambda stop: actions.run_jitter(settings.key_jitter, stop)))
     for key in ("a", "s", ";", "'"):
         hk.define(HotkeyDef(
@@ -130,7 +131,7 @@ def main() -> None:
     tray.on_activate = lambda icon, item=None: root.after(0, partial(_show_ui, root))
     _app_state["icon"] = tray
 
-    root.protocol("WM_DELETE_WINDOW", partial(_close_ui, root))
+    root.protocol("WM_DELETE_WINDOW", partial(_close_ui, root, settings))
     tray.run_detached()
     root.after(200, lambda: _cursor_lock_tick(root, settings))
     root.mainloop()
@@ -211,8 +212,11 @@ def _show_ui(root: tk.Tk) -> None:
     root.after(200, lambda: root.attributes("-topmost", False))
 
 
-def _close_ui(root: tk.Tk) -> None:
+def _close_ui(root: tk.Tk, settings: Settings) -> None:
     log: Logger | None = _app_state.get("log")
+    if not settings.is_minimize_to_tray:
+        _shutdown_app(root, "close")
+        return
     if log:
         log.event("SYS", "App", "close", "start")
     winapi.clip_cursor(None)
