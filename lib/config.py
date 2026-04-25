@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NAME = "NikkeWitchcraft"
-APP_VERSION = "1.07"
+APP_VERSION = "1.08"
 APP_TITLE = f"{APP_NAME} v{APP_VERSION}"
 
 
@@ -56,6 +56,7 @@ class Settings:
     is_auto_start: bool = False
     is_cursor_lock: bool = False
     is_global_hotkeys: bool = False
+    is_rhythm_preset2_enabled: bool = False
 
 
 class ConfigStore:
@@ -113,6 +114,7 @@ class ConfigStore:
             s.is_auto_start = getbool("General", "AutoStart", fallback=s.is_auto_start)
             s.is_cursor_lock = getbool("General", "CursorLock", fallback=s.is_cursor_lock)
             s.is_global_hotkeys = getbool("General", "GlobalHotkeys", fallback=s.is_global_hotkeys)
+            s.is_rhythm_preset2_enabled = getbool("General", "RhythmPreset2", fallback=s.is_rhythm_preset2_enabled)
         return s
 
     def save(self, s: Settings) -> None:
@@ -162,6 +164,7 @@ class ConfigStore:
             "AutoStart": str(int(s.is_auto_start)),
             "CursorLock": str(int(s.is_cursor_lock)),
             "GlobalHotkeys": str(int(s.is_global_hotkeys)),
+            "RhythmPreset2": str(int(s.is_rhythm_preset2_enabled)),
         }
         with self.ini_path.open("w", encoding="utf-8") as f:
             cp.write(f)

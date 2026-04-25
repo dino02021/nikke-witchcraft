@@ -11,6 +11,11 @@ class Actions:
     def __init__(self, settings: Settings, hotkeys: HotkeyManager):
         self.s = settings
         self.hk = hotkeys
+        self._rhythm_lock = threading.Lock()
+        self._rhythm_triggers_down: set[str] = set()
+        self._rhythm_outputs_down: set[str] = set()
+        self._rhythm_space_latched = False
+        self._rhythm_space_latch_keys: set[str] = set()
 
     def is_context_enabled(self) -> bool:
         return self.s.is_global_hotkeys or winapi.is_foreground_exe("nikke.exe")
@@ -74,6 +79,33 @@ class Actions:
                 if not self.hk.wait_ms_cancel(self.s.key_spam_delay_ms, trigger_key, stop_ev):
                     return
 
+    def handle_rhythm_preset2_key(self, trigger_key: str, is_down: bool) -> None:
+        trigger = trigger_key.strip().lower()
+        if not self.s.is_rhythm_preset2_enabled or not self.is_context_enabled():
+            self.release_rhythm_preset2()
+            return
+
+        if trigger not in {"a", "s", ";", "'"}:
+            return
+
+        with self._rhythm_lock:
+            if is_down:
+                self._rhythm_triggers_down.add(trigger)
+            else:
+                self._rhythm_triggers_down.discard(trigger)
+                self._rhythm_space_latch_keys.discard(trigger)
+            self._sync_rhythm_preset2_outputs()
+
+    def release_rhythm_preset2(self) -> None:
+        with self._rhythm_lock:
+            for output_key in ("space", "lshift", "rshift"):
+                if output_key in self._rhythm_outputs_down:
+                    winapi.send_key_up(output_key)
+            self._rhythm_outputs_down.clear()
+            self._rhythm_triggers_down.clear()
+            self._rhythm_space_latched = False
+            self._rhythm_space_latch_keys.clear()
+
     def _key_from_name(self, name: str):
         n = name.strip().lower()
         if len(n) == 1:
@@ -85,6 +117,30 @@ class Actions:
         if not key:
             return
         winapi.send_key_tap(key)
+
+    def _sync_rhythm_preset2_outputs(self) -> None:
+        down = self._rhythm_triggers_down
+        self._set_rhythm_output("lshift", {"a", "s"}.issubset(down))
+        self._set_rhythm_output("rshift", {";", "'"}.issubset(down))
+
+        all_triggers = {"a", "s", ";", "'"}
+        if all_triggers.issubset(down) and "space" not in self._rhythm_outputs_down:
+            self._rhythm_space_latched = True
+            self._rhythm_space_latch_keys = set(all_triggers)
+            self._set_rhythm_output("space", True)
+        elif self._rhythm_space_latched and not self._rhythm_space_latch_keys:
+            self._set_rhythm_output("space", False)
+            self._rhythm_space_latched = False
+
+    def _set_rhythm_output(self, output_key: str, should_hold: bool) -> None:
+        if should_hold:
+            if output_key not in self._rhythm_outputs_down:
+                winapi.send_key_down(output_key)
+                self._rhythm_outputs_down.add(output_key)
+            return
+        if output_key in self._rhythm_outputs_down:
+            winapi.send_key_up(output_key)
+            self._rhythm_outputs_down.discard(output_key)
 
     def _click(self, btn_name: str) -> None:
         winapi.send_mouse_click(btn_name)

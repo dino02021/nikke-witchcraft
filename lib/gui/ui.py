@@ -131,8 +131,10 @@ class AppUI:
         create_checkbutton(other_frame, "鎖定滑鼠於遊戲視窗內", self.chk_cursor_lock, self._toggle_cursor_lock, row=1, column=0)
         self.chk_global_hotkeys = tk.IntVar()
         create_checkbutton(other_frame, "全域啟用熱鍵", self.chk_global_hotkeys, self._toggle_global_hotkeys, row=2, column=0)
+        self.chk_rhythm_preset2 = tk.IntVar()
+        create_checkbutton(other_frame, "音遊模式 (PRESET 2)", self.chk_rhythm_preset2, self._toggle_rhythm_preset2, row=3, column=0)
 
-        btn_row = create_btn_frame(opt_frame, row=3, column=0)
+        btn_row = create_btn_frame(opt_frame, row=4, column=0)
         create_btn_between(btn_row, "開啟設定資料夾", self._open_settings, row=0, column=0, sticky="w", pady=ui.LABEL_PADY)
         create_btn_between(btn_row, "匯出設定", self._export_settings, row=0, column=1, sticky="w")
         create_btn_last(btn_row, "匯入設定", self._import_settings, row=0, column=2, sticky="w")
@@ -358,6 +360,15 @@ class AppUI:
 
     def _toggle_global_hotkeys(self) -> None:
         self.s.is_global_hotkeys = self.chk_global_hotkeys.get() != 0
+        if not self.actions.is_context_enabled():
+            self.actions.release_rhythm_preset2()
+        self.store.save(self.s)
+
+    def _toggle_rhythm_preset2(self) -> None:
+        self.s.is_rhythm_preset2_enabled = self.chk_rhythm_preset2.get() != 0
+        self._apply_hotkey_defs()
+        if not self.s.is_rhythm_preset2_enabled:
+            self.actions.release_rhythm_preset2()
         self.store.save(self.s)
 
     def _apply_delays(self) -> None:
@@ -418,6 +429,10 @@ class AppUI:
         self.hk.update_enabled("ClickSeq2", self.s.is_click2_enabled)
         self.hk.update_enabled("ClickSeq3", self.s.is_click3_enabled)
         self.hk.update_enabled("Jitter", self.s.is_jitter_enabled)
+        for key in ("a", "s", ";", "'"):
+            self.hk.update_enabled(f"RhythmPreset2_{key}", self.s.is_rhythm_preset2_enabled)
+        if not self.s.is_rhythm_preset2_enabled:
+            self.actions.release_rhythm_preset2()
 
     def _refresh(self) -> None:
         self._hotkey_vars["EscMap"].set(self.s.key_esc)
@@ -452,6 +467,7 @@ class AppUI:
         self.chk_autostart.set(1 if self.s.is_auto_start else 0)
         self.chk_cursor_lock.set(1 if self.s.is_cursor_lock else 0)
         self.chk_global_hotkeys.set(1 if self.s.is_global_hotkeys else 0)
+        self.chk_rhythm_preset2.set(1 if self.s.is_rhythm_preset2_enabled else 0)
 
         self._apply_hotkey_defs()
         self._update_all_row_enabled()

@@ -29,3 +29,9 @@
 - 動作循環使用可取消等待，確保在放鍵或 context 變化時能立即停止。
 - 連點延遲為可設定；鍵盤連點採固定步進策略。
 
+## Rhythm mode PRESET 2
+- The option is stored as `General.RhythmPreset2` and defaults to disabled.
+- When enabled, PRESET 2 listens to `a`, `s`, `;`, and `'` as pass-through hotkeys.
+- `a` + `s` holds `lshift`, and `;` + `'` holds `rshift`; either Shift releases as soon as its pair is no longer held.
+- Pressing all four trigger keys latches `space`; `space` stays held until the original four-key latch set is fully released, and later keydowns do not extend that latch.
+- Disabling the option, losing the active context, or shutting down the app releases any PRESET 2 output keys to avoid stuck Shift/Space state.

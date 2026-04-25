@@ -103,6 +103,15 @@ def main() -> None:
 
     hk.define(HotkeyDef("Jitter", settings.key_jitter, settings.is_jitter_enabled,
                         lambda stop: actions.run_jitter(settings.key_jitter, stop)))
+    for key in ("a", "s", ";", "'"):
+        hk.define(HotkeyDef(
+            f"RhythmPreset2_{key}",
+            key,
+            settings.is_rhythm_preset2_enabled,
+            lambda stop: None,
+            pass_through=True,
+            on_event=lambda is_down, trigger=key: actions.handle_rhythm_preset2_key(trigger, is_down),
+        ))
 
     hk.start()
 
@@ -242,6 +251,9 @@ def _shutdown_app(root: tk.Tk, reason: str, icon=None) -> None:
             if log:
                 log.event("SYS", "App", "shutdown", "step=hotkeys_stop")
             hk.stop()
+        actions = getattr(_fg_ui, "actions", None)
+        if actions:
+            actions.release_rhythm_preset2()
         fg_hook = getattr(root, "_fg_hook", None)
         if fg_hook:
             if log:
@@ -279,6 +291,8 @@ def _install_foreground_pending(root: tk.Tk, ui: AppUI, log: Logger, hk: HotkeyM
                 fg, exe, _hwnd, is_primary, is_global = last
                 suppress = 1 if (is_global or (fg == 1 and is_primary == 1)) else 0
                 hk.set_key_blocking(bool(suppress))
+                if not suppress:
+                    _fg_ui.actions.release_rhythm_preset2()
                 _fg_ui.set_game_state(fg, exe)
         except Exception as exc:
             if _fg_log:

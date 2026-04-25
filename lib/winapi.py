@@ -253,9 +253,18 @@ def _vk_from_name(name: str) -> int | None:
         "space": 0x20,
         "backspace": 0x08,
         "shift": 0x10,
+        "lshift": 0xA0,
+        "rshift": 0xA1,
         "ctrl": 0x11,
+        "lctrl": 0xA2,
+        "rctrl": 0xA3,
         "alt": 0x12,
+        "lalt": 0xA4,
+        "ralt": 0xA5,
         "lwin": 0x5B,
+        "lcmd": 0x5B,
+        "rwin": 0x5C,
+        "rcmd": 0x5C,
     }
     return vk_map.get(n)
 
@@ -318,21 +327,29 @@ def _mouse_input(flags: int) -> INPUT:
     return inp
 
 
-def send_key_tap(name: str) -> None:
+def _key_inputs(name: str, flags: int) -> list[INPUT]:
     vk = _vk_from_name(name)
     if vk is None:
-        return
+        return []
     sc = _scan_from_vk(vk)
     if sc:
-        down = INPUT()
-        down.type = INPUT_KEYBOARD
-        down.union.ki = KEYBDINPUT(0, sc, KEYEVENTF_SCANCODE, 0, None)
-        up = INPUT()
-        up.type = INPUT_KEYBOARD
-        up.union.ki = KEYBDINPUT(0, sc, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, None)
-        _send_input([down, up])
-    else:
-        _send_input([_key_input(vk, 0), _key_input(vk, KEYEVENTF_KEYUP)])
+        inp = INPUT()
+        inp.type = INPUT_KEYBOARD
+        inp.union.ki = KEYBDINPUT(0, sc, KEYEVENTF_SCANCODE | flags, 0, None)
+        return [inp]
+    return [_key_input(vk, flags)]
+
+
+def send_key_down(name: str) -> None:
+    _send_input(_key_inputs(name, 0))
+
+
+def send_key_up(name: str) -> None:
+    _send_input(_key_inputs(name, KEYEVENTF_KEYUP))
+
+
+def send_key_tap(name: str) -> None:
+    _send_input(_key_inputs(name, 0) + _key_inputs(name, KEYEVENTF_KEYUP))
 
 
 def send_mouse_down(btn_name: str) -> None:

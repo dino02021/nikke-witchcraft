@@ -16,6 +16,8 @@ class HotkeyDef:
     key_name: str
     is_enabled: bool
     on_start: Callable[[threading.Event], None]
+    pass_through: bool = False
+    on_event: Optional[Callable[[bool], None]] = None
 
 
 class HotkeyManager:
@@ -43,6 +45,7 @@ class HotkeyManager:
         self._force_pass_through = False
         self._hook_state = None
         self._bound_keys_cache: set[str] = set()
+        self._blocking_keys_cache: set[str] = set()
 
     _GENERIC_VARIANTS: dict[str, tuple[str, ...]] = {
         # Keep old config values working, while allowing left/right bindings.
@@ -91,7 +94,12 @@ class HotkeyManager:
     def define(self, hk: HotkeyDef) -> None:
         self._defs[hk.id] = hk
         self._refresh_bound_keys()
-        self.log.event("HK", hk.id, "define", f"key={hk.key_name} enabled={int(hk.is_enabled)}")
+        self.log.event(
+            "HK",
+            hk.id,
+            "define",
+            f"key={hk.key_name} enabled={int(hk.is_enabled)} pass={int(hk.pass_through)}",
+        )
 
     def update_key(self, hotkey_id: str, key_name: str) -> None:
         if hotkey_id in self._defs:
@@ -182,13 +190,18 @@ class HotkeyManager:
             return True
         return False
 
-    def _maybe_trigger(self, name: str) -> None:
+    def _maybe_trigger(self, name: str, is_down: bool) -> None:
         event_norm = self._norm(name)
         for hk in self._defs.values():
             if not hk.is_enabled:
                 continue
             binding_norm = self._norm(hk.key_name)
             if not self._match_key(binding_norm, event_norm):
+                continue
+            if hk.on_event:
+                hk.on_event(is_down)
+                continue
+            if not is_down:
                 continue
             ctx = self.is_context_enabled()
             if not ctx:
@@ -205,21 +218,29 @@ class HotkeyManager:
                 name, is_down = self._event_q.get(timeout=0.1)
             except Exception:
                 continue
-            if not is_down:
+            if is_down and self._maybe_bind(name):
                 continue
-            if self._maybe_bind(name):
-                continue
-            self._maybe_trigger(name)
+            self._maybe_trigger(name, is_down)
 
     def _refresh_bound_keys(self) -> None:
         keys: set[str] = set()
+        blocking_keys: set[str] = set()
         for hk in self._defs.values():
             if not hk.is_enabled:
                 continue
-            keys.update(self._expand_bound_key(self._norm(hk.key_name)))
+            expanded = self._expand_bound_key(self._norm(hk.key_name))
+            keys.update(expanded)
+            if not hk.pass_through:
+                blocking_keys.update(expanded)
         self._bound_keys_cache = keys
+        self._blocking_keys_cache = blocking_keys
 
     def _should_block(self, name: str) -> bool:
+        if self._binding_cb:
+            return False
+        return self._norm(name) in self._blocking_keys_cache
+
+    def _should_listen(self, name: str) -> bool:
         if self._binding_cb:
             return False
         return self._norm(name) in self._bound_keys_cache
@@ -230,11 +251,10 @@ class HotkeyManager:
         if self._binding_cb and is_down:
             self._binding_cb(name)
             return False
-        if self._should_block(name):
+        if self._should_listen(name):
             self._set_key_down(name, is_down)
-            if is_down:
-                self._event_q.put((name, True))
-            if self._suppress:
+            self._event_q.put((name, is_down))
+            if self._suppress and self._should_block(name):
                 return True
         return False
 
