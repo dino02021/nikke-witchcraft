@@ -40,3 +40,8 @@
 - `General.MinimizeToTray` defaults to enabled. When enabled, the window close button hides the UI to the tray; when disabled, the same close button shuts the app down.
 - `General.HotkeysPaused` defaults to disabled. When enabled, the configurable binding hotkeys are disabled and removed from blocking, so their original keys pass through normally.
 - Hotkeys pause applies to the binding rows only. Rhythm mode PRESET 2 is controlled separately by `General.RhythmPreset2`.
+
+## Session logs
+- Each app launch creates one timestamped log file under `%LOCALAPPDATA%\NikkeWitchcraft\Logs`.
+- Log file names use `NikkeWitchcraft_YYYYMMDD_HHMMSS_microseconds_PID.log`.
+- Runtime diagnostics avoid high-volume loop logging. Mouse left/right diagnostics are rate-limited and intended to identify whether those buttons are ever considered block candidates.

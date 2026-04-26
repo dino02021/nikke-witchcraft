@@ -9,7 +9,7 @@ from pathlib import Path
 from functools import partial
 
 from lib.config import Settings, ConfigStore, APP_NAME, APP_TITLE
-from lib.log import Logger
+from lib.log import Logger, session_log_path
 from lib.hotkeys import HotkeyManager, HotkeyDef
 from lib.actions import Actions
 from lib.gui.ui import AppUI
@@ -63,8 +63,9 @@ def ensure_admin(log: Logger) -> None:
 
 def main() -> None:
     base_dir = Path.home() / "Documents" / f"{APP_NAME}Settings"
-    log = Logger(base_dir / f"{APP_NAME}Debug.log")
+    log = Logger(session_log_path(APP_NAME))
     _app_state["log"] = log
+    log.event("SYS", "App", "sessionStart", f"title={APP_TITLE} pid={os.getpid()} path={log.log_path}")
     _install_exception_logging(log)
     _enable_faulthandler(log.log_path)
     ensure_admin(log)
@@ -407,7 +408,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        base_dir = Path.home() / "Documents" / f"{APP_NAME}Settings"
-        log = Logger(base_dir / f"{APP_NAME}Debug.log")
+        log = _app_state.get("log") or Logger(session_log_path(APP_NAME))
         log.event("SYS", "App", "fatal", f"err={exc}")
         raise

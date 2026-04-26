@@ -78,6 +78,7 @@ class HotkeyManager:
             if self._suppress == enable:
                 return
             self._suppress = enable
+        self.log.event("HK", "-", "suppress", f"enabled={int(enable)}")
 
     def _bound_keys(self) -> set[str]:
         return set(self._bound_keys_cache)
@@ -85,8 +86,13 @@ class HotkeyManager:
     def set_key_blocking(self, enable: bool) -> None:
         if self._force_pass_through:
             self._suppress = False
+            self.log.event("HK", "-", "blocking", "enabled=0 force_pass=1")
+            return
+        if self._suppress == enable:
             return
         self._suppress = enable
+        blocking = ",".join(sorted(self._blocking_keys_cache)) or "-"
+        self.log.event("HK", "-", "blocking", f"enabled={int(enable)} keys={blocking}")
 
     def set_binding_callback(self, cb: Optional[Callable[[str], None]]) -> None:
         self._binding_cb = cb
@@ -103,6 +109,8 @@ class HotkeyManager:
 
     def update_key(self, hotkey_id: str, key_name: str) -> None:
         if hotkey_id in self._defs:
+            if self._defs[hotkey_id].key_name == key_name:
+                return
             self._defs[hotkey_id].key_name = key_name
             self._refresh_bound_keys()
             self.log.event("HK", hotkey_id, "updateKey", f"key={key_name}")
@@ -110,6 +118,8 @@ class HotkeyManager:
 
     def update_enabled(self, hotkey_id: str, enabled: bool) -> None:
         if hotkey_id in self._defs:
+            if self._defs[hotkey_id].is_enabled == enabled:
+                return
             self._defs[hotkey_id].is_enabled = enabled
             self._refresh_bound_keys()
             self.log.event("HK", hotkey_id, "updateEnabled", f"enabled={int(enabled)}")
@@ -271,10 +281,15 @@ class HotkeyManager:
             return False
         if name in ("left", "right"):
             self._set_pressed(name, is_down)
+            should_block = self._should_block(name)
+            if is_down:
+                self._log_left_right_mouse_diag(name, should_block)
+        else:
+            should_block = self._should_block(name)
         if self._binding_cb and is_down:
             self._binding_cb(name)
             return False
-        if self._should_block(name):
+        if should_block:
             # Track mouse-bound hotkeys (x1/x2/middle) via key_down state.
             self._set_key_down(name, is_down)
             if is_down:
@@ -284,6 +299,17 @@ class HotkeyManager:
             if self._suppress:
                 return True
         return False
+
+    def _log_left_right_mouse_diag(self, name: str, should_block: bool) -> None:
+        action = "leftRightBlockCandidate" if should_block else "leftRightPass"
+        interval = 1.0 if should_block else 10.0
+        blocking = ",".join(sorted(self._blocking_keys_cache)) or "-"
+        bound = ",".join(sorted(self._bound_keys_cache)) or "-"
+        detail = (
+            f"button={name} suppress={int(self._suppress)} should_block={int(should_block)} "
+            f"blocking={blocking} bound={bound}"
+        )
+        self.log.event_rate_limited(f"mouse:{name}:{action}", interval, "HK", "MouseDiag", action, detail)
 
     def _on_hook_auto_fail_open(self) -> None:
         with self._lock:

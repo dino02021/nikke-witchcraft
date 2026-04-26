@@ -16,7 +16,8 @@
 
 ## 設定與資料檔
 - 設定根目錄：`%USERPROFILE%\\Documents\\NikkeWitchcraftSettings`。
-- 設定與日誌檔路徑由 `ConfigStore` 與 `Logger` 統一管理。
+- 設定檔路徑由 `ConfigStore` 統一管理。
+- 日誌檔路徑由 `Logger` 統一管理，預設寫入 `%LOCALAPPDATA%\\NikkeWitchcraft\\Logs`。
 - 新增設定項目時必須同時更新：
 - `Settings` dataclass
 - `ConfigStore.load/save`
