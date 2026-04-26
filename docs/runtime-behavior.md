@@ -1,47 +1,69 @@
-# 執行行為
+# 執行行為細節
 
-## 前景規則
-- 前景判定只看 `nikke.exe`。
-- 是否阻斷原生輸入，取決於前景狀態與全域熱鍵設定。
+> 本文件是 `spec.md` 的補充文件，只描述目前版本的執行細節。
+>
+> 長期原則與規格入口以 `spec.md` 為準。
 
-## Hook 安全性
-- Hook 回呼採 fail-open：回呼異常時優先放行。
-- 會忽略注入事件（`LLKHF_INJECTED` / `LLMHF_INJECTED`），避免腳本送出的輸入被自己再攔截。
-- 關閉流程必須先解除 Hook、停止訊息迴圈，再進行 UI 收尾。
+## 有效情境
 
-## 阻斷與觸發規則（重點）
-- Hook 回呼只做最小工作量：解析鍵名、更新按下狀態、必要時送事件進佇列、依條件決定是否阻斷。
-- 只有在以下條件同時成立時，才會阻斷該事件（return `1`）：
-- 事件是 `down`
-- key blocking 已啟用（通常是遊戲前景）
-- 該鍵名在「已啟用」的綁定集合內
-- 其他鍵一律快速放行（`CallNextHookEx`）。
+熱鍵只在以下任一條件成立時生效：
 
-## 綁定模式（變更按鍵）
-- UI 進入綁定模式時，下一個 `down` 事件會回傳鍵名並完成綁定。
-- 綁定模式不會阻斷輸入（避免把使用者的操作鎖死）。
+- `General.GlobalHotkeys` 已啟用。
+- `nikke.exe` 是目前前景程式，且遊戲視窗位於主螢幕。
 
-## UI 執行緒規則
-- 背景執行緒不得直接操作 Tk 元件。
-- UI 更新必須經主執行緒排程（例如 `after`）。
+同一套情境判斷會用在熱鍵觸發、按鍵阻斷、PRESET 2、worker 停止條件與 context 診斷 log。切換全域熱鍵時，阻斷狀態必須立即更新。
 
-## 計時行為
-- 動作循環使用可取消等待，確保在放鍵或 context 變化時能立即停止。
-- 連點延遲為可設定；鍵盤連點採固定步進策略。
+## 按鍵阻斷
 
-## Rhythm mode PRESET 2
-- The option is stored as `General.RhythmPreset2` and defaults to disabled.
-- When enabled, PRESET 2 listens to `a`, `s`, `;`, and `'` as pass-through hotkeys.
-- `a` + `s` latches `lshift`, and `;` + `'` latches `rshift`; each latched output releases only after its original trigger set is fully released.
-- Pressing all four trigger keys latches `space`; `space` stays held until the original four-key latch set is fully released, and later keydowns do not extend that latch.
-- Disabling the option, losing the active context, or shutting down the app releases any PRESET 2 output keys to avoid stuck Shift/Space state.
+hook 只允許阻斷「目前啟用、已綁定、且不是 pass-through」的按鍵。停用、暫停或未綁定的按鍵必須正常穿透。
 
-## General behavior toggles
-- `General.MinimizeToTray` defaults to enabled. When enabled, the window close button hides the UI to the tray; when disabled, the same close button shuts the app down.
-- `General.HotkeysPaused` defaults to disabled. When enabled, the configurable binding hotkeys are disabled and removed from blocking, so their original keys pass through normally.
-- Hotkeys pause applies to the binding rows only. Rhythm mode PRESET 2 is controlled separately by `General.RhythmPreset2`.
+PRESET 2 的觸發鍵固定為 pass-through，因此 `a`、`s`、`;`、`'` 的原始輸入會保留，程式只監聽它們的按住與放開狀態。
 
-## Session logs
-- Each app launch creates one timestamped log file under `%LOCALAPPDATA%\NikkeWitchcraft\Logs`.
-- Log file names use `NikkeWitchcraft_YYYYMMDD_HHMMSS_microseconds_PID.log`.
-- Runtime diagnostics avoid high-volume loop logging. Mouse left/right diagnostics are rate-limited and intended to identify whether those buttons are ever considered block candidates.
+## 滑鼠 Hook
+
+mouse hook 只在需要時安裝：
+
+- 至少有一個已啟用熱鍵綁定到 `left`、`right`、`middle`、`x1`、`x2`。
+- UI 正在綁定模式中，需要捕捉下一個滑鼠按鍵。
+
+沒有滑鼠綁定且不在綁定模式時，程式不安裝 mouse hook，也不處理滑鼠事件。若只綁定 `x2`，未綁定的 `left` / `right` 不會進入 HotkeyManager 判斷。
+
+連點啟動前會即時查詢 Windows 目前的 left/right 實體按住狀態；若已按住，會先送出對應 mouse up，再開始連點循環。這個檢查不依賴 mouse hook，因此不需要長期監控未綁定的 left/right。
+
+## 綁定模式
+
+hook callback 不直接操作 Tk 元件。進入綁定模式後，hook thread 只把按鍵名稱放進 queue；Tk main thread 透過 `root.after()` 輪詢 queue，再完成 `_finish_bind()`。
+
+關閉綁定視窗時，必須清掉待綁定目標、關閉 binding capture，並清空已排隊的綁定事件，避免後續按鍵被誤綁。
+
+## 音遊模式 PRESET 2
+
+`General.RhythmPreset2` 預設關閉。
+
+啟用且情境有效時：
+
+- `a` + `s` 同時按住會鎖住 `lshift`。
+- `;` + `'` 同時按住會鎖住 `rshift`。
+- `a` + `s` + `;` + `'` 四鍵同時按住會鎖住 `space`。
+
+每個輸出鍵只在「當次觸發它的原始觸發鍵集合」全部放開後才釋放。後續補按的新鍵不會延長既有 latch。失去有效情境、關閉 PRESET 2 或程式結束時，必須釋放 `lshift`、`rshift`、`space`。
+
+## 其他設定
+
+`General.MinimizeToTray` 預設啟用。啟用時右上角關閉按鈕會隱藏 UI 到工具列；停用時右上角關閉按鈕會直接結束程式。
+
+`General.HotkeysPaused` 預設關閉。啟用時，按鍵綁定區的熱鍵會停用並從阻斷集合移除，因此原始按鍵會正常穿透。PRESET 2 不受此設定影響，仍由 `General.RhythmPreset2` 獨立控制。
+
+## 單一實例
+
+新實例啟動時，會先透過每位使用者獨立的 named shutdown event 通知舊實例正常關閉。新版本實例會在 Tk main thread 輪詢此 event，收到後走正常 shutdown 流程。
+
+若舊版本不支援 shutdown event，或逾時仍未結束，才 fallback 強制終止符合條件的舊程序。
+
+## Session Log
+
+每次啟動會在 `%LOCALAPPDATA%\NikkeWitchcraft\Logs` 建立一個 session log。
+
+UI 的「開啟Log資料夾」按鈕會開啟目前 session log 所在資料夾。
+
+hook callback 不同步寫入磁碟。runtime event 會先排入背景 writer queue，於 shutdown 或 fatal exit 時 flush/close。高頻診斷必須 rate-limit；連點與連發類動作只記錄 start/stop summary，不記錄每一次輸出。

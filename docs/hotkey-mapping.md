@@ -1,63 +1,72 @@
-# 熱鍵對應表
+# 熱鍵對照細節
 
-## 用途
-本檔記錄容易變動的按鍵對應細節，避免把這類內容寫死在 `spec.md`。
+> 本文件是 `spec.md` 的補充文件，只描述目前版本支援的鍵名、對照與阻斷細節。
+>
+> 長期原則與規格入口以 `spec.md` 為準。
 
-## 程式位置
-- 鍵盤與滑鼠熱鍵的正規化：`lib/hotkeys.py`
-- 低階 VK 到鍵名映射：`lib/winhook.py`
+## 支援的輸入名稱
 
-## 鍵名規則（總覽）
-本專案使用「字串鍵名」作為綁定資料的唯一識別。
+使用者綁定會儲存為正規化後的鍵名。常見支援名稱如下：
 
-### 鍵盤（常見）
-- 英文字母：`a` ~ `z`
-- 主鍵盤數字：`0` ~ `9`
-- 功能鍵：`f1` ~ `f24`
-- 導航/編輯：`home/end/pageup/pagedown/insert/delete/printscreen`
-- 方向鍵：`up/down/left/right`
-- 系統/控制：`esc/tab/enter/space/backspace/capslock/numlock/scrolllock/pause`
-- Numpad：`num0` ~ `num9`、`num+ num- num* num/ num. numsep`
+- 英文字母：`a` 到 `z`
+- 數字：`0` 到 `9`
+- 功能鍵：`f1` 到 `f24`
+- 導航鍵：`home`、`end`、`pageup`、`pagedown`、`insert`、`delete`、`printscreen`
+- 方向鍵：`up`、`down`、`left`、`right`
+- 控制鍵：`esc`、`tab`、`enter`、`space`、`backspace`、`capslock`、`numlock`、`scrolllock`、`pause`
+- 數字鍵盤：`num0` 到 `num9`、`num+`、`num-`、`num*`、`num/`、`num.`、`numsep`
+- 滑鼠鍵：`left`、`right`、`middle`、`x1`、`x2`
 
-### 左右鍵（不同名稱）
-以下鍵位會以左右不同名稱回報，便於精準綁定：
-- `lshift` / `rshift`
-- `lctrl` / `rctrl`
-- `lalt` / `ralt`
-- `lcmd` / `rcmd`
+## 修飾鍵
 
-### 舊名稱相容（綁定時）
-為了相容舊設定，你仍可綁：`shift/ctrl/alt/cmd`，其行為是「同時匹配左右」：
-- 綁 `shift` 會同時匹配 `lshift` 與 `rshift`
-- 綁 `ctrl` 會同時匹配 `lctrl` 與 `rctrl`
-- 綁 `alt` 會同時匹配 `lalt` 與 `ralt`
-- 綁 `cmd` 會同時匹配 `lcmd` 與 `rcmd`
+支援左右側獨立修飾鍵：
 
-### OEM 符號鍵（依鍵盤佈局可能不同）
-常見符號（US 佈局）：
-```
+- `lshift`、`rshift`
+- `lctrl`、`rctrl`
+- `lalt`、`ralt`
+- `lcmd`、`rcmd`
+
+為了相容舊設定，也保留泛用修飾鍵名稱：
+
+- `shift` 會匹配 `lshift` 或 `rshift`
+- `ctrl` 會匹配 `lctrl` 或 `rctrl`
+- `alt` 會匹配 `lalt` 或 `ralt`
+- `cmd` 會匹配 `lcmd` 或 `rcmd`
+
+## OEM 符號鍵
+
+標準鍵盤配置下支援以下 OEM 符號鍵：
+
+```text
 ` ; = , - . / [ ] \ '
 ```
-另外：
-- `~` 會正規化為 `` ` ``（多數 US 佈局是同一顆實體鍵的 shift 版）
 
-### 滑鼠鍵
-- `left`、`right`、`middle`、`x1`、`x2`
+`~` 會正規化成 `` ` ``，因為在 US 配置下兩者來自同一顆實體鍵。
 
-## 全鍵位（含冷門鍵）支援
-本專案允許綁定未列入表內的冷門鍵：
-- 已知 VK：回傳可讀鍵名（例如 `a`, `1`, `esc`, `pageup`）
-- 未知/冷門 VK：回傳 `vk_XX`（16 進位），仍可綁定
+## 未知或冷門鍵
 
-## 維護規則
-新增或調整可綁定按鍵時，必須同步更新：
-- `lib/winhook.py`（VK 映射 / 鍵名）
-- `lib/hotkeys.py`（鍵名正規化與相容規則）
-- 本文件（對外行為說明）
+低階 hook 收到尚未列入對照表的鍵盤 VK 時，會回傳穩定名稱 `vk_XX`，其中 `XX` 是 16 進位 VK 值。這類鍵仍可被綁定與保存。
 
-## Rhythm mode PRESET 2
-- The fixed pass-through trigger keys are `a`, `s`, `;`, and `'`.
-- Holding `a` + `s` latches `lshift` until both original trigger keys are released.
-- Holding `;` + `'` latches `rshift` until both original trigger keys are released.
-- Holding all four trigger keys latches `space`; it releases only after the original four-key latch set is fully released.
-- These keys are registered as pass-through hotkeys, so PRESET 2 itself does not block native input.
+## 阻斷規則
+
+啟用中的一般綁定熱鍵，在有效情境下會阻斷原始輸入，讓綁定功能取代原鍵功能。
+
+pass-through 熱鍵只監聽，不阻斷原始輸入。PRESET 2 的 `a`、`s`、`;`、`'` 就是 pass-through 觸發鍵。
+
+啟用 `General.HotkeysPaused` 時，按鍵綁定區熱鍵會停用並從阻斷集合移除，原始按鍵會正常穿透。
+
+## 滑鼠綁定
+
+滑鼠事件只在「某個滑鼠鍵實際被啟用熱鍵綁定」或「正在綁定模式」時處理。若只綁定 `x2`，程式只監聽 `x2`；未綁定的 `left`、`right` 不會成為熱鍵候選。
+
+連點功能啟動前會用 Windows 即時狀態檢查 left/right 是否正被按住；若有按住會先放開再開始循環。這是連點動作的啟動前檢查，不代表 left/right 會被 mouse hook 長期監聽。
+
+## 音遊模式 PRESET 2
+
+固定觸發鍵為 `a`、`s`、`;`、`'`。
+
+- `a` + `s` 會鎖住 `lshift`。
+- `;` + `'` 會鎖住 `rshift`。
+- `a` + `s` + `;` + `'` 會鎖住 `space`。
+
+每個輸出鍵只在當次 latch 的原始觸發鍵集合全部放開後才釋放。latch 成立後補按的新鍵不會延長該次 latch。

@@ -5,6 +5,7 @@ import ctypes
 from ctypes import wintypes
 import tkinter as tk
 import os
+import time
 from pathlib import Path
 from functools import partial
 
@@ -21,12 +22,12 @@ import queue
 import faulthandler
 
 
-_fg_pending = {"fg": 0, "exe": "-", "hwnd": 0}
+_fg_pending = {"fg": 0, "exe": "-", "hwnd": 0, "primary": 0}
 _fg_ui: AppUI | None = None
 _fg_log: Logger | None = None
-_fg_queue: queue.Queue[tuple[int, str, int, int, int]] = queue.Queue()
+_fg_queue: queue.Queue[tuple[int, str, int, int]] = queue.Queue()
 _faulthandler_file = None
-_app_state = {"hk": None, "icon": None, "log": None, "closing": False}
+_app_state = {"hk": None, "icon": None, "log": None, "closing": False, "shutdown_event": None}
 
 
 def ensure_admin(log: Logger) -> None:
@@ -56,6 +57,7 @@ def ensure_admin(log: Logger) -> None:
         if rc <= 32:
             log.event("SYS", "Admin", "requestFail", f"rc={rc}")
             return
+        log.close()
         sys.exit(0)
     else:
         log.event("SYS", "Admin", "ok", "state=1")
@@ -69,7 +71,8 @@ def main() -> None:
     _install_exception_logging(log)
     _enable_faulthandler(log.log_path)
     ensure_admin(log)
-    _terminate_existing_instances()
+    _signal_existing_instances(log)
+    _terminate_existing_instances(log)
     store = ConfigStore(base_dir)
     settings = store.load(Settings())
     winapi.time_begin_period(1)
@@ -119,6 +122,7 @@ def main() -> None:
 
     root, ui = _init_ui(settings, store, hk, actions, log)
     _install_foreground_hook(root, ui, log, hk, settings)
+    _install_shutdown_event(root, log)
 
     tray = pystray.Icon(
         APP_TITLE,
@@ -139,14 +143,35 @@ def main() -> None:
 
 
 def _is_context_enabled(settings: Settings) -> bool:
-    return settings.is_global_hotkeys or winapi.is_foreground_exe("nikke.exe")
+    return _context_state(settings)["enabled"]
 
 
 def _context_info(settings: Settings) -> str:
-    fg = 1 if winapi.is_foreground_exe("nikke.exe") else 0
-    g = 1 if settings.is_global_hotkeys else 0
-    exe = winapi.get_foreground_exe_name() or "-"
-    return f"global={g} fg={fg} exe={exe}"
+    state = _context_state(settings)
+    return (
+        f"global={state['global']} fg={state['fg']} "
+        f"primary={state['primary']} exe={state['exe']}"
+    )
+
+
+def _context_state(settings: Settings) -> dict[str, int | str | bool]:
+    hwnd = winapi.get_foreground_hwnd()
+    exe = "-"
+    if hwnd:
+        path = winapi.get_process_image(hwnd)
+        exe = os.path.basename(path).lower() if path else "-"
+    fg = 1 if exe == "nikke.exe" else 0
+    primary = 1 if (hwnd and winapi.is_window_on_primary_monitor(hwnd)) else 0
+    is_global = 1 if settings.is_global_hotkeys else 0
+    enabled = bool(is_global or (fg == 1 and primary == 1))
+    return {
+        "enabled": enabled,
+        "global": is_global,
+        "fg": fg,
+        "primary": primary,
+        "exe": exe,
+        "hwnd": hwnd,
+    }
 
 
 def _init_ui(settings: Settings, store: ConfigStore, hk: HotkeyManager, actions: Actions, log: Logger) -> tuple[tk.Tk, AppUI]:
@@ -174,11 +199,11 @@ def _install_foreground_hook(root: tk.Tk, ui: AppUI, log: Logger, hk: HotkeyMana
             path = winapi.get_process_image(hwnd)
             exe = os.path.basename(path).lower() if path else "-"
             fg = 1 if exe == "nikke.exe" else 0
-            current = (fg, exe)
+            is_primary = 1 if winapi.is_window_on_primary_monitor(hwnd) else 0
+            current = (fg, exe, is_primary)
             if state["last"] != current:
                 state["last"] = current
-                is_primary = 1 if winapi.is_window_on_primary_monitor(hwnd) else 0
-                _queue_foreground_update(fg, exe, hwnd, is_primary, 1 if settings.is_global_hotkeys else 0)
+                _queue_foreground_update(fg, exe, hwnd, is_primary)
         except Exception as exc:
             log.event("SYS", "ForegroundHook", "error", f"err={exc}")
 
@@ -195,8 +220,11 @@ def _install_foreground_hook(root: tk.Tk, ui: AppUI, log: Logger, hk: HotkeyMana
 
 
 def _cursor_lock_tick(root: tk.Tk, settings: Settings) -> None:
-    if settings.is_cursor_lock and winapi.is_foreground_exe("nikke.exe"):
-        rect = winapi.get_client_rect_screen(winapi.get_foreground_hwnd())
+    hwnd = winapi.get_foreground_hwnd()
+    exe = winapi.get_foreground_exe_name() or "-"
+    is_game_primary = exe.lower() == "nikke.exe" and bool(hwnd) and winapi.is_window_on_primary_monitor(hwnd)
+    if settings.is_cursor_lock and is_game_primary:
+        rect = winapi.get_client_rect_screen(hwnd)
         if rect and rect.width > 0 and rect.height > 0:
             winapi.clip_cursor(rect)
         else:
@@ -272,11 +300,29 @@ def _shutdown_app(root: tk.Tk, reason: str, icon=None) -> None:
             if log:
                 log.event("SYS", "App", "shutdown", "step=tray_stop")
             icon.stop()
+        winapi.time_end_period(1)
+        if log:
+            log.event("SYS", "timeEndPeriod", "shutdown", "ok=1")
         if log:
             log.event("SYS", "App", "shutdown", "step=done")
     except Exception as exc:
         if log:
             log.event("SYS", "App", "shutdownFail", f"err={exc}")
+    finally:
+        _close_shutdown_event()
+        try:
+            faulthandler.disable()
+        except Exception:
+            pass
+        global _faulthandler_file
+        if _faulthandler_file:
+            try:
+                _faulthandler_file.close()
+            except Exception:
+                pass
+            _faulthandler_file = None
+        if log:
+            log.close()
 
 
 def _install_foreground_pending(root: tk.Tk, ui: AppUI, log: Logger, hk: HotkeyManager, settings: Settings) -> None:
@@ -293,8 +339,15 @@ def _install_foreground_pending(root: tk.Tk, ui: AppUI, log: Logger, hk: HotkeyM
                 except Exception:
                     break
             if last and _fg_ui and _fg_log:
-                fg, exe, _hwnd, is_primary, is_global = last
+                fg, exe, _hwnd, is_primary = last
+                is_global = 1 if settings.is_global_hotkeys else 0
                 suppress = 1 if (is_global or (fg == 1 and is_primary == 1)) else 0
+                _fg_log.event(
+                    "SYS",
+                    "Context",
+                    "foreground",
+                    f"fg={fg} exe={exe} primary={is_primary} global={is_global} suppress={suppress}",
+                )
                 hk.set_key_blocking(bool(suppress))
                 if not suppress:
                     _fg_ui.actions.release_rhythm_preset2()
@@ -308,11 +361,12 @@ def _install_foreground_pending(root: tk.Tk, ui: AppUI, log: Logger, hk: HotkeyM
     root.after(500, _drain_queue)
 
 
-def _queue_foreground_update(fg: int, exe: str, hwnd: int, is_primary: int, is_global: int) -> None:
+def _queue_foreground_update(fg: int, exe: str, hwnd: int, is_primary: int) -> None:
     _fg_pending["fg"] = fg
     _fg_pending["exe"] = exe
     _fg_pending["hwnd"] = hwnd
-    _fg_queue.put((fg, exe, hwnd, is_primary, is_global))
+    _fg_pending["primary"] = is_primary
+    _fg_queue.put((fg, exe, hwnd, is_primary))
 
 
 def _install_exception_logging(log: Logger) -> None:
@@ -332,7 +386,76 @@ def _enable_faulthandler(log_path: Path) -> None:
     faulthandler.enable(_faulthandler_file)
 
 
-def _terminate_existing_instances() -> None:
+def _shutdown_event_name() -> str:
+    user = os.environ.get("USERNAME") or os.environ.get("USER") or "default"
+    safe = "".join(ch if ch.isalnum() else "_" for ch in user)
+    return f"Local\\{APP_NAME}_Shutdown_{safe}"
+
+
+def _signal_existing_instances(log: Logger) -> None:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.OpenEventW.restype = wintypes.HANDLE
+    kernel32.SetEvent.argtypes = [wintypes.HANDLE]
+    kernel32.SetEvent.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    EVENT_MODIFY_STATE = 0x0002
+    handle = kernel32.OpenEventW(EVENT_MODIFY_STATE, False, _shutdown_event_name())
+    if not handle:
+        log.event("SYS", "SingleInstance", "signalSkip", "reason=no_shutdown_event")
+        return
+    try:
+        ok = kernel32.SetEvent(handle)
+        log.event("SYS", "SingleInstance", "signal", f"ok={int(bool(ok))}")
+    finally:
+        kernel32.CloseHandle(handle)
+    time.sleep(1.5)
+
+
+def _install_shutdown_event(root: tk.Tk, log: Logger) -> None:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateEventW.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.ResetEvent.argtypes = [wintypes.HANDLE]
+    kernel32.ResetEvent.restype = wintypes.BOOL
+
+    handle = kernel32.CreateEventW(None, True, False, _shutdown_event_name())
+    if not handle:
+        log.event("SYS", "SingleInstance", "eventInitFail", f"err={ctypes.get_last_error()}")
+        return
+    kernel32.ResetEvent(handle)
+    _app_state["shutdown_event"] = handle
+    log.event("SYS", "SingleInstance", "eventInit", "ok=1")
+
+    def _poll_shutdown_event() -> None:
+        if _app_state.get("closing"):
+            return
+        if kernel32.WaitForSingleObject(handle, 0) == 0:
+            kernel32.ResetEvent(handle)
+            log.event("SYS", "SingleInstance", "shutdownSignal", "received=1")
+            _shutdown_app(root, "single_instance")
+            return
+        root.after(250, _poll_shutdown_event)
+
+    root.after(250, _poll_shutdown_event)
+
+
+def _close_shutdown_event() -> None:
+    handle = _app_state.get("shutdown_event")
+    if not handle:
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CloseHandle(handle)
+    _app_state["shutdown_event"] = None
+
+
+def _terminate_existing_instances(log: Logger) -> None:
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.LPARAM)
@@ -392,6 +515,7 @@ def _terminate_existing_instances() -> None:
                 return 1
             handle = kernel32.OpenProcess(0x0001, False, pid.value)
             if handle:
+                log.event("SYS", "SingleInstance", "terminateFallback", f"pid={pid.value}")
                 kernel32.TerminateProcess(handle, 0)
                 kernel32.CloseHandle(handle)
         return 1
@@ -410,4 +534,5 @@ if __name__ == "__main__":
     except Exception as exc:
         log = _app_state.get("log") or Logger(session_log_path(APP_NAME))
         log.event("SYS", "App", "fatal", f"err={exc}")
+        log.close()
         raise

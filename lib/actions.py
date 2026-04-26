@@ -21,66 +21,107 @@ class Actions:
         }
 
     def is_context_enabled(self) -> bool:
-        return self.s.is_global_hotkeys or winapi.is_foreground_exe("nikke.exe")
+        return self.hk.is_context_enabled()
 
     def run_single_map(self, trigger_key: str, output_key: str, stop_ev: threading.Event) -> None:
+        self.hk.log.event("ACT", "SingleMap", "start", f"trigger={trigger_key} output={output_key}")
         self._press_key(output_key)
         # Keep the worker alive until release so a held trigger does not retrigger.
-        while self.hk.should_run(trigger_key, stop_ev):
-            if not self.hk.wait_ms_cancel(10, trigger_key, stop_ev):
-                break
+        reason = "released"
+        try:
+            while self.hk.should_run(trigger_key, stop_ev):
+                if not self.hk.wait_ms_cancel(10, trigger_key, stop_ev):
+                    reason = self._stop_reason(trigger_key, stop_ev)
+                    break
+        finally:
+            self.hk.log.event("ACT", "SingleMap", "stop", f"trigger={trigger_key} output={output_key} reason={reason}")
 
     def run_spam(self, trigger_key: str, output_key: str, stop_ev: threading.Event) -> None:
-        while self.hk.should_run(trigger_key, stop_ev):
-            self._press_key(output_key)
-            if not self.hk.wait_ms_cancel(self.s.key_spam_delay_ms, trigger_key, stop_ev):
-                break
+        count = 0
+        reason = "released"
+        self.hk.log.event("ACT", "KeySpam", "start", f"trigger={trigger_key} output={output_key}")
+        try:
+            while self.hk.should_run(trigger_key, stop_ev):
+                self._press_key(output_key)
+                count += 1
+                if not self.hk.wait_ms_cancel(self.s.key_spam_delay_ms, trigger_key, stop_ev):
+                    reason = self._stop_reason(trigger_key, stop_ev)
+                    break
+        finally:
+            self.hk.log.event("ACT", "KeySpam", "stop", f"trigger={trigger_key} output={output_key} count={count} reason={reason}")
 
     def run_click(self, key_name: str, btn_name: str, hold_ms: int, gap_ms: int, stop_ev: threading.Event) -> None:
         released_any = False
-        if self.hk.is_pressed("left"):
+        released_names = []
+        if winapi.is_mouse_button_down("LButton"):
             self._release_click("LButton")
             released_any = True
-        if self.hk.is_pressed("right"):
+            released_names.append("left")
+        if winapi.is_mouse_button_down("RButton"):
             self._release_click("RButton")
             released_any = True
+            released_names.append("right")
+        self.hk.log.event(
+            "ACT",
+            "ClickSeq",
+            "start",
+            f"trigger={key_name} output={btn_name} released={','.join(released_names) or '-'}",
+        )
+        count = 0
+        reason = "released"
         if released_any:
             if not self.hk.wait_ms_cancel(gap_ms, key_name, stop_ev):
+                reason = self._stop_reason(key_name, stop_ev)
+                self.hk.log.event("ACT", "ClickSeq", "stop", f"trigger={key_name} output={btn_name} count=0 reason={reason}_after_pre_release")
                 return
         try:
             while self.hk.should_run(key_name, stop_ev):
                 self._hold_click(btn_name)
+                count += 1
                 if not self.hk.wait_ms_cancel(hold_ms, key_name, stop_ev):
+                    reason = self._stop_reason(key_name, stop_ev)
                     break
                 self._release_click(btn_name)
                 if not self.hk.wait_ms_cancel(gap_ms, key_name, stop_ev):
+                    reason = self._stop_reason(key_name, stop_ev)
                     break
         finally:
             self._release_click(btn_name)
+            self.hk.log.event("ACT", "ClickSeq", "stop", f"trigger={key_name} output={btn_name} count={count} reason={reason}")
 
     def run_jitter(self, trigger_key: str, stop_ev: threading.Event) -> None:
-        while self.hk.should_run(trigger_key, stop_ev):
-            seq = []
-            if self.s.jitter_z:
-                seq.append("z")
-            if self.s.jitter_x:
-                seq.append("x")
-            if self.s.jitter_c:
-                seq.append("c")
-            if self.s.jitter_v:
-                seq.append("v")
-            if self.s.jitter_b:
-                seq.append("b")
-            if not seq:
-                if not self.hk.wait_ms_cancel(self.s.key_spam_delay_ms, trigger_key, stop_ev):
-                    break
-                continue
-            for key in seq:
-                if not self.hk.should_run(trigger_key, stop_ev):
-                    return
-                self._press_key(key)
-                if not self.hk.wait_ms_cancel(self.s.key_spam_delay_ms, trigger_key, stop_ev):
-                    return
+        count = 0
+        reason = "released"
+        self.hk.log.event("ACT", "Jitter", "start", f"trigger={trigger_key}")
+        try:
+            while self.hk.should_run(trigger_key, stop_ev):
+                seq = []
+                if self.s.jitter_z:
+                    seq.append("z")
+                if self.s.jitter_x:
+                    seq.append("x")
+                if self.s.jitter_c:
+                    seq.append("c")
+                if self.s.jitter_v:
+                    seq.append("v")
+                if self.s.jitter_b:
+                    seq.append("b")
+                if not seq:
+                    if not self.hk.wait_ms_cancel(self.s.key_spam_delay_ms, trigger_key, stop_ev):
+                        reason = self._stop_reason(trigger_key, stop_ev)
+                        break
+                    continue
+                for key in seq:
+                    if not self.hk.should_run(trigger_key, stop_ev):
+                        reason = self._stop_reason(trigger_key, stop_ev)
+                        return
+                    self._press_key(key)
+                    count += 1
+                    if not self.hk.wait_ms_cancel(self.s.key_spam_delay_ms, trigger_key, stop_ev):
+                        reason = self._stop_reason(trigger_key, stop_ev)
+                        return
+        finally:
+            self.hk.log.event("ACT", "Jitter", "stop", f"trigger={trigger_key} count={count} reason={reason}")
 
     def handle_rhythm_preset2_key(self, trigger_key: str, is_down: bool) -> None:
         trigger = trigger_key.strip().lower()
@@ -102,6 +143,13 @@ class Actions:
 
     def release_rhythm_preset2(self) -> None:
         with self._rhythm_lock:
+            if self._rhythm_outputs_down or self._rhythm_triggers_down:
+                self.hk.log.event(
+                    "ACT",
+                    "RhythmPreset2",
+                    "releaseAll",
+                    f"triggers={','.join(sorted(self._rhythm_triggers_down)) or '-'} outputs={','.join(sorted(self._rhythm_outputs_down)) or '-'}",
+                )
             for output_key in ("space", "lshift", "rshift"):
                 if output_key in self._rhythm_outputs_down:
                     winapi.send_key_up(output_key)
@@ -143,10 +191,21 @@ class Actions:
             if output_key not in self._rhythm_outputs_down:
                 winapi.send_key_down(output_key)
                 self._rhythm_outputs_down.add(output_key)
+                self.hk.log.event("ACT", "RhythmPreset2", "outputDown", f"key={output_key}")
             return
         if output_key in self._rhythm_outputs_down:
             winapi.send_key_up(output_key)
             self._rhythm_outputs_down.discard(output_key)
+            self.hk.log.event("ACT", "RhythmPreset2", "outputUp", f"key={output_key}")
+
+    def _stop_reason(self, trigger_key: str, stop_ev: threading.Event) -> str:
+        if stop_ev.is_set():
+            return "stop_requested"
+        if not self.hk.is_pressed(trigger_key):
+            return "released"
+        if not self.hk.is_context_enabled():
+            return "context_lost"
+        return "unknown"
 
     def _click(self, btn_name: str) -> None:
         winapi.send_mouse_click(btn_name)

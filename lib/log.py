@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import queue
 import threading
 from pathlib import Path
 
@@ -24,11 +25,19 @@ class Logger:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._rate_limited: dict[str, float] = {}
         self._rate_lock = threading.Lock()
+        self._write_q: queue.Queue[str | None] = queue.Queue()
+        self._closed = threading.Event()
+        self._writer = threading.Thread(target=self._write_loop, daemon=True)
+        self._writer.start()
 
     def write(self, line: str) -> None:
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with self.log_path.open("a", encoding="utf-8") as f:
-            f.write(f"{ts} - {line}\n")
+        formatted = f"{ts} - {line}\n"
+        if self._closed.is_set():
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(formatted)
+            return
+        self._write_q.put(formatted)
 
     def event(self, cat: str, ident: str, action: str, detail: str = "") -> None:
         if detail:
@@ -52,3 +61,25 @@ class Logger:
                 return
             self._rate_limited[key] = now
         self.event(cat, ident, action, detail)
+
+    def flush(self) -> None:
+        self._write_q.join()
+
+    def close(self) -> None:
+        if self._closed.is_set():
+            return
+        self._write_q.put(None)
+        self._writer.join(timeout=2.0)
+        self._closed.set()
+
+    def _write_loop(self) -> None:
+        with self.log_path.open("a", encoding="utf-8") as f:
+            while True:
+                line = self._write_q.get()
+                try:
+                    if line is None:
+                        return
+                    f.write(line)
+                    f.flush()
+                finally:
+                    self._write_q.task_done()

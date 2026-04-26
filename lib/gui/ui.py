@@ -140,8 +140,9 @@ class AppUI:
 
         btn_row = create_btn_frame(opt_frame, row=6, column=0)
         create_btn_between(btn_row, "開啟設定資料夾", self._open_settings, row=0, column=0, sticky="w", pady=ui.LABEL_PADY)
-        create_btn_between(btn_row, "匯出設定", self._export_settings, row=0, column=1, sticky="w")
-        create_btn_last(btn_row, "匯入設定", self._import_settings, row=0, column=2, sticky="w")
+        create_btn_between(btn_row, "開啟Log資料夾", self._open_logs, row=0, column=1, sticky="w")
+        create_btn_between(btn_row, "匯出設定", self._export_settings, row=0, column=2, sticky="w")
+        create_btn_last(btn_row, "匯入設定", self._import_settings, row=0, column=3, sticky="w")
         row += 1
 
         self._add_separator(container, row)
@@ -242,12 +243,30 @@ class AppUI:
         if self._bind_tip:
             close_dialog(self._bind_tip)
         self._bind_tip = create_dialog(self.root, "綁定", 150, 80, override_redirect=False)
+        self._bind_tip.protocol("WM_DELETE_WINDOW", self._cancel_bind)
         dlg_frame = create_frame(self._bind_tip)
         dlg_frame.columnconfigure(0, weight=1)
         dlg_frame.rowconfigure(0, weight=1)
         label = create_entry_label(dlg_frame, "請按下要綁定的按鍵", row=0, column=0, sticky="nswe", padx=0, pady=0)
         label.configure(anchor="center", justify="center")
-        self.hk.set_binding_callback(self._finish_bind)
+        self.hk.set_binding_callback(lambda _key_name: None)
+        self.root.after(30, self._poll_bind_queue)
+
+    def _poll_bind_queue(self) -> None:
+        if not self._binding_target:
+            return
+        key_name = self.hk.poll_binding_key()
+        if key_name:
+            self._finish_bind(key_name)
+            return
+        self.root.after(30, self._poll_bind_queue)
+
+    def _cancel_bind(self) -> None:
+        self._binding_target = None
+        self.hk.set_binding_callback(None)
+        if self._bind_tip:
+            close_dialog(self._bind_tip)
+            self._bind_tip = None
 
     def _finish_bind(self, key_name: str) -> None:
         hid = self._binding_target
@@ -368,6 +387,7 @@ class AppUI:
 
     def _toggle_global_hotkeys(self) -> None:
         self.s.is_global_hotkeys = self.chk_global_hotkeys.get() != 0
+        self.hk.set_key_blocking(self.hk.is_context_enabled())
         if not self.actions.is_context_enabled():
             self.actions.release_rhythm_preset2()
         self.store.save(self.s)
@@ -408,6 +428,15 @@ class AppUI:
         try:
             import os
             os.startfile(str(self.store.base_dir))
+        except Exception:
+            pass
+
+    def _open_logs(self) -> None:
+        log_dir = self.log.log_path.parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            import os
+            os.startfile(str(log_dir))
         except Exception:
             pass
 

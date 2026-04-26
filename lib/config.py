@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NAME = "NikkeWitchcraft"
-APP_VERSION = "1.11"
+APP_VERSION = "1.20"
 APP_TITLE = f"{APP_NAME} v{APP_VERSION}"
 
 

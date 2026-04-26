@@ -245,6 +245,8 @@ def start_hooks(
     on_mouse: Callable[[str, bool], bool],
     on_log: Callable[[str, str, str, str], None] | None = None,
     on_auto_fail_open: Callable[[], None] | None = None,
+    enable_mouse: bool = True,
+    mouse_filter: Callable[[str], bool] | None = None,
 ) -> HookState:
     state = HookState()
     err_lock = threading.Lock()
@@ -296,7 +298,7 @@ def start_hooks(
                 if data.flags & LLMHF_INJECTED:
                     return _safe_next(nCode, wParam, lParam)
                 name = _mouse_name(wParam, data.mouseData)
-                if name:
+                if name and (mouse_filter is None or mouse_filter(name)):
                     is_down = wParam in (WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, WM_XBUTTONDOWN)
                     if on_mouse(name, is_down):
                         return 1
@@ -307,17 +309,18 @@ def start_hooks(
     def run():
         state.tid = kernel32.GetCurrentThreadId()
         state.kb_cb = LowLevelProc(kb_proc)
-        state.ms_cb = LowLevelProc(ms_proc)
         state.h_kb = user32.SetWindowsHookExW(WH_KEYBOARD_LL, state.kb_cb, 0, 0)
-        state.h_ms = user32.SetWindowsHookExW(WH_MOUSE_LL, state.ms_cb, 0, 0)
+        if enable_mouse:
+            state.ms_cb = LowLevelProc(ms_proc)
+            state.h_ms = user32.SetWindowsHookExW(WH_MOUSE_LL, state.ms_cb, 0, 0)
         if on_log:
-            if not state.h_kb or not state.h_ms:
+            if not state.h_kb or (enable_mouse and not state.h_ms):
                 err = ctypes.get_last_error()
-                on_log("SYS", "Hook", "initFail", f"hkb={int(bool(state.h_kb))} hms={int(bool(state.h_ms))} err={err}")
+                on_log("SYS", "Hook", "initFail", f"hkb={int(bool(state.h_kb))} hms={int(bool(state.h_ms))} mouse={int(enable_mouse)} err={err}")
                 state.fail_open_enabled = True
                 if on_auto_fail_open:
                     on_auto_fail_open()
-            on_log("SYS", "Hook", "init", f"tid={state.tid} hkb={int(bool(state.h_kb))} hms={int(bool(state.h_ms))}")
+            on_log("SYS", "Hook", "init", f"tid={state.tid} hkb={int(bool(state.h_kb))} hms={int(bool(state.h_ms))} mouse={int(enable_mouse)}")
         msg = wintypes.MSG()
         while not state._stop.is_set() and user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
             user32.TranslateMessage(ctypes.byref(msg))

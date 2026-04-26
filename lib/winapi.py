@@ -56,6 +56,8 @@ user32.SendInput.argtypes = [wintypes.UINT, ctypes.c_void_p, ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
 user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
 user32.MapVirtualKeyW.restype = wintypes.UINT
+user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+user32.GetAsyncKeyState.restype = wintypes.SHORT
 
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -232,6 +234,8 @@ MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 MOUSEEVENTF_RIGHTDOWN = 0x0008
 MOUSEEVENTF_RIGHTUP = 0x0010
+VK_LBUTTON = 0x01
+VK_RBUTTON = 0x02
 
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_SCANCODE = 0x0008
@@ -371,6 +375,18 @@ def send_mouse_up(btn_name: str) -> None:
 def send_mouse_click(btn_name: str) -> None:
     send_mouse_down(btn_name)
     send_mouse_up(btn_name)
+
+
+def is_mouse_button_down(btn_name: str) -> bool:
+    name = btn_name.strip().lower()
+    vk = None
+    if name in ("lbutton", "left"):
+        vk = VK_LBUTTON
+    elif name in ("rbutton", "right"):
+        vk = VK_RBUTTON
+    if vk is None:
+        return False
+    return (int(user32.GetAsyncKeyState(vk)) & 0x8000) != 0
 
 
 def get_last_error() -> int:
