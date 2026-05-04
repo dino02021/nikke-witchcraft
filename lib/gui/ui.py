@@ -4,6 +4,7 @@ import tkinter as tk
 import sys
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
+from typing import Callable
 
 from ..config import Settings, ConfigStore, APP_TITLE
 from ..log import Logger
@@ -27,13 +28,23 @@ from . import ui_constants as ui
 
 
 class AppUI:
-    def __init__(self, root: tk.Tk, settings: Settings, store: ConfigStore, hk: HotkeyManager, actions: Actions, logger: Logger):
+    def __init__(
+        self,
+        root: tk.Tk,
+        settings: Settings,
+        store: ConfigStore,
+        hk: HotkeyManager,
+        actions: Actions,
+        logger: Logger,
+        on_logging_changed: Callable[[bool], None] | None = None,
+    ):
         self.root = root
         self.s = settings
         self.store = store
         self.hk = hk
         self.actions = actions
         self.log = logger
+        self._on_logging_changed = on_logging_changed
 
         self.root.title(APP_TITLE)
         self.root.resizable(False, False)
@@ -129,14 +140,16 @@ class AppUI:
         create_checkbutton(other_frame, "開機時自動啟動", self.chk_autostart, self._toggle_autostart, row=0, column=0)
         self.chk_minimize_to_tray = tk.IntVar()
         create_checkbutton(other_frame, "縮小至工具列", self.chk_minimize_to_tray, self._toggle_minimize_to_tray, row=1, column=0)
+        self.chk_record_log = tk.IntVar()
+        create_checkbutton(other_frame, "紀錄Log", self.chk_record_log, self._toggle_record_log, row=2, column=0)
         self.chk_cursor_lock = tk.IntVar()
-        create_checkbutton(other_frame, "鎖定滑鼠於遊戲視窗內", self.chk_cursor_lock, self._toggle_cursor_lock, row=2, column=0)
+        create_checkbutton(other_frame, "鎖定滑鼠於遊戲視窗內", self.chk_cursor_lock, self._toggle_cursor_lock, row=3, column=0)
         self.chk_global_hotkeys = tk.IntVar()
-        create_checkbutton(other_frame, "全域啟用熱鍵", self.chk_global_hotkeys, self._toggle_global_hotkeys, row=3, column=0)
-        self.chk_rhythm_preset2 = tk.IntVar()
-        create_checkbutton(other_frame, "音遊模式 (PRESET 2)", self.chk_rhythm_preset2, self._toggle_rhythm_preset2, row=4, column=0)
+        create_checkbutton(other_frame, "遊戲外啟用熱鍵", self.chk_global_hotkeys, self._toggle_global_hotkeys, row=4, column=0)
         self.chk_hotkeys_paused = tk.IntVar()
-        create_checkbutton(other_frame, "暫停全熱鍵", self.chk_hotkeys_paused, self._toggle_hotkeys_paused, row=5, column=0)
+        create_checkbutton(other_frame, "暫停全部熱鍵", self.chk_hotkeys_paused, self._toggle_hotkeys_paused, row=5, column=0)
+        self.chk_rhythm_preset2 = tk.IntVar()
+        create_checkbutton(other_frame, "音遊模式 (PRESET 2)", self.chk_rhythm_preset2, self._toggle_rhythm_preset2, row=6, column=0)
 
         btn_row = create_btn_frame(opt_frame, row=6, column=0)
         create_btn_between(btn_row, "開啟設定資料夾", self._open_settings, row=0, column=0, sticky="w", pady=ui.LABEL_PADY)
@@ -385,6 +398,14 @@ class AppUI:
         self.s.is_minimize_to_tray = self.chk_minimize_to_tray.get() != 0
         self.store.save(self.s)
 
+    def _toggle_record_log(self) -> None:
+        self.s.is_log_enabled = self.chk_record_log.get() != 0
+        if self._on_logging_changed:
+            self._on_logging_changed(self.s.is_log_enabled)
+        else:
+            self.log.set_enabled(self.s.is_log_enabled)
+        self.store.save(self.s)
+
     def _toggle_global_hotkeys(self) -> None:
         self.s.is_global_hotkeys = self.chk_global_hotkeys.get() != 0
         self.hk.set_key_blocking(self.hk.is_context_enabled())
@@ -512,6 +533,11 @@ class AppUI:
 
         self.chk_autostart.set(1 if self.s.is_auto_start else 0)
         self.chk_minimize_to_tray.set(1 if self.s.is_minimize_to_tray else 0)
+        self.chk_record_log.set(1 if self.s.is_log_enabled else 0)
+        if self._on_logging_changed:
+            self._on_logging_changed(self.s.is_log_enabled)
+        else:
+            self.log.set_enabled(self.s.is_log_enabled)
         self.chk_cursor_lock.set(1 if self.s.is_cursor_lock else 0)
         self.chk_global_hotkeys.set(1 if self.s.is_global_hotkeys else 0)
         self.chk_rhythm_preset2.set(1 if self.s.is_rhythm_preset2_enabled else 0)
@@ -583,7 +609,9 @@ class AppUI:
                 elif isinstance(widget, ttk.Entry):
                     widget.configure(state="readonly" if enabled else "disabled")
                 elif isinstance(widget, ttk.Checkbutton):
-                    if disable_enable_checkbox or widget.cget("text") != "啟用":
+                    if widget.cget("text") == "啟用":
+                        widget.configure(state="disabled" if disable_enable_checkbox else "normal")
+                    else:
                         widget.configure(state=state)
                 elif isinstance(widget, ttk.Label):
                     widget.configure(state=state)

@@ -11,6 +11,8 @@ class Actions:
     def __init__(self, settings: Settings, hotkeys: HotkeyManager):
         self.s = settings
         self.hk = hotkeys
+        self._click_lock = threading.Lock()
+        self._click_outputs_down: dict[str, dict[str, int]] = {}
         self._rhythm_lock = threading.Lock()
         self._rhythm_triggers_down: set[str] = set()
         self._rhythm_outputs_down: set[str] = set()
@@ -25,6 +27,8 @@ class Actions:
 
     def run_single_map(self, trigger_key: str, output_key: str, stop_ev: threading.Event) -> None:
         self.hk.log.event("ACT", "SingleMap", "start", f"trigger={trigger_key} output={output_key}")
+        if output_key.strip().lower() in ("esc", "escape"):
+            self.release_click_outputs()
         self._press_key(output_key)
         # Keep the worker alive until release so a held trigger does not retrigger.
         reason = "released"
@@ -50,15 +54,15 @@ class Actions:
         finally:
             self.hk.log.event("ACT", "KeySpam", "stop", f"trigger={trigger_key} output={output_key} count={count} reason={reason}")
 
-    def run_click(self, key_name: str, btn_name: str, hold_ms: int, gap_ms: int, stop_ev: threading.Event) -> None:
+    def run_click(self, hotkey_id: str, key_name: str, btn_name: str, hold_ms: int, gap_ms: int, stop_ev: threading.Event) -> None:
         released_any = False
         released_names = []
         if winapi.is_mouse_button_down("LButton"):
-            self._release_click("LButton")
+            self._release_click(hotkey_id, "LButton")
             released_any = True
             released_names.append("left")
         if winapi.is_mouse_button_down("RButton"):
-            self._release_click("RButton")
+            self._release_click(hotkey_id, "RButton")
             released_any = True
             released_names.append("right")
         self.hk.log.event(
@@ -76,18 +80,40 @@ class Actions:
                 return
         try:
             while self.hk.should_run(key_name, stop_ev):
-                self._hold_click(btn_name)
+                self._hold_click(hotkey_id, btn_name)
                 count += 1
+                if not self.hk.should_run(key_name, stop_ev):
+                    reason = self._stop_reason(key_name, stop_ev)
+                    self._release_click(hotkey_id, btn_name)
+                    break
                 if not self.hk.wait_ms_cancel(hold_ms, key_name, stop_ev):
                     reason = self._stop_reason(key_name, stop_ev)
                     break
-                self._release_click(btn_name)
+                self._release_click(hotkey_id, btn_name)
                 if not self.hk.wait_ms_cancel(gap_ms, key_name, stop_ev):
                     reason = self._stop_reason(key_name, stop_ev)
                     break
         finally:
-            self._release_click(btn_name)
+            self._release_click(hotkey_id, btn_name)
             self.hk.log.event("ACT", "ClickSeq", "stop", f"trigger={key_name} output={btn_name} count={count} reason={reason}")
+
+    def release_click_outputs(self) -> None:
+        with self._click_lock:
+            down = sorted({btn_name for outputs in self._click_outputs_down.values() for btn_name in outputs})
+            self._click_outputs_down.clear()
+            for btn_name in down:
+                winapi.send_mouse_up(btn_name)
+        if down:
+            self.hk.log.event("ACT", "ClickSeq", "releaseAll", f"outputs={','.join(down)}")
+
+    def release_click_output_for_hotkey(self, hotkey_id: str) -> None:
+        with self._click_lock:
+            outputs = self._click_outputs_down.pop(hotkey_id, {})
+            down = sorted(outputs.keys())
+            for btn_name in down:
+                winapi.send_mouse_up(btn_name)
+        if down:
+            self.hk.log.event("ACT", "ClickSeq", "releaseHotkey", f"id={hotkey_id} outputs={','.join(down)}")
 
     def run_jitter(self, trigger_key: str, stop_ev: threading.Event) -> None:
         count = 0
@@ -210,8 +236,22 @@ class Actions:
     def _click(self, btn_name: str) -> None:
         winapi.send_mouse_click(btn_name)
 
-    def _hold_click(self, btn_name: str) -> None:
-        winapi.send_mouse_down(btn_name)
+    def _hold_click(self, hotkey_id: str, btn_name: str) -> None:
+        with self._click_lock:
+            outputs = self._click_outputs_down.setdefault(hotkey_id, {})
+            outputs[btn_name] = outputs.get(btn_name, 0) + 1
+            winapi.send_mouse_down(btn_name)
 
-    def _release_click(self, btn_name: str) -> None:
-        winapi.send_mouse_up(btn_name)
+    def _release_click(self, hotkey_id: str, btn_name: str) -> None:
+        with self._click_lock:
+            winapi.send_mouse_up(btn_name)
+            outputs = self._click_outputs_down.get(hotkey_id)
+            if not outputs:
+                return
+            count = outputs.get(btn_name, 0) - 1
+            if count > 0:
+                outputs[btn_name] = count
+            else:
+                outputs.pop(btn_name, None)
+            if not outputs:
+                self._click_outputs_down.pop(hotkey_id, None)

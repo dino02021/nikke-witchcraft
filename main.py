@@ -65,16 +65,16 @@ def ensure_admin(log: Logger) -> None:
 
 def main() -> None:
     base_dir = Path.home() / "Documents" / f"{APP_NAME}Settings"
-    log = Logger(session_log_path(APP_NAME))
+    store = ConfigStore(base_dir)
+    settings = store.load(Settings())
+    log = Logger(session_log_path(APP_NAME), enabled=False)
     _app_state["log"] = log
+    _set_logging_enabled(log, settings.is_log_enabled)
     log.event("SYS", "App", "sessionStart", f"title={APP_TITLE} pid={os.getpid()} path={log.log_path}")
     _install_exception_logging(log)
-    _enable_faulthandler(log.log_path)
     ensure_admin(log)
     _signal_existing_instances(log)
     _terminate_existing_instances(log)
-    store = ConfigStore(base_dir)
-    settings = store.load(Settings())
     winapi.time_begin_period(1)
     log.event("SYS", "timeBeginPeriod", "init", "ok=1")
 
@@ -97,14 +97,17 @@ def main() -> None:
                         lambda stop: actions.run_spam(settings.key_spam_a, "a", stop)))
 
     hk.define(HotkeyDef("ClickSeq1", settings.key_click1, settings.is_click1_enabled and binding_enabled,
-                        lambda stop: actions.run_click(settings.key_click1, settings.click_btn1,
-                                                       settings.click1_hold_ms, settings.click1_gap_ms, stop)))
+                        lambda stop: actions.run_click("ClickSeq1", settings.key_click1, settings.click_btn1,
+                                                       settings.click1_hold_ms, settings.click1_gap_ms, stop),
+                        on_release=lambda: actions.release_click_output_for_hotkey("ClickSeq1")))
     hk.define(HotkeyDef("ClickSeq2", settings.key_click2, settings.is_click2_enabled and binding_enabled,
-                        lambda stop: actions.run_click(settings.key_click2, settings.click_btn2,
-                                                       settings.click2_hold_ms, settings.click2_gap_ms, stop)))
+                        lambda stop: actions.run_click("ClickSeq2", settings.key_click2, settings.click_btn2,
+                                                       settings.click2_hold_ms, settings.click2_gap_ms, stop),
+                        on_release=lambda: actions.release_click_output_for_hotkey("ClickSeq2")))
     hk.define(HotkeyDef("ClickSeq3", settings.key_click3, settings.is_click3_enabled and binding_enabled,
-                        lambda stop: actions.run_click(settings.key_click3, settings.click_btn3,
-                                                       settings.click3_hold_ms, settings.click3_gap_ms, stop)))
+                        lambda stop: actions.run_click("ClickSeq3", settings.key_click3, settings.click_btn3,
+                                                       settings.click3_hold_ms, settings.click3_gap_ms, stop),
+                        on_release=lambda: actions.release_click_output_for_hotkey("ClickSeq3")))
 
     hk.define(HotkeyDef("Jitter", settings.key_jitter, settings.is_jitter_enabled and binding_enabled,
                         lambda stop: actions.run_jitter(settings.key_jitter, stop)))
@@ -178,7 +181,7 @@ def _init_ui(settings: Settings, store: ConfigStore, hk: HotkeyManager, actions:
     try:
         root = tk.Tk()
         root.report_callback_exception = lambda exc, val, tb: log.event("SYS", "UI", "exception", f"err={val}")
-        ui = AppUI(root, settings, store, hk, actions, log)
+        ui = AppUI(root, settings, store, hk, actions, log, on_logging_changed=partial(_set_logging_enabled, log))
         log.event("SYS", "UI", "init", "ok=1")
         root.update_idletasks()
         _show_ui(root)
@@ -286,6 +289,7 @@ def _shutdown_app(root: tk.Tk, reason: str, icon=None) -> None:
             hk.stop()
         actions = getattr(_fg_ui, "actions", None)
         if actions:
+            actions.release_click_outputs()
             actions.release_rhythm_preset2()
         fg_hook = getattr(root, "_fg_hook", None)
         if fg_hook:
@@ -310,17 +314,7 @@ def _shutdown_app(root: tk.Tk, reason: str, icon=None) -> None:
             log.event("SYS", "App", "shutdownFail", f"err={exc}")
     finally:
         _close_shutdown_event()
-        try:
-            faulthandler.disable()
-        except Exception:
-            pass
-        global _faulthandler_file
-        if _faulthandler_file:
-            try:
-                _faulthandler_file.close()
-            except Exception:
-                pass
-            _faulthandler_file = None
+        _disable_faulthandler()
         if log:
             log.close()
 
@@ -379,11 +373,38 @@ def _install_exception_logging(log: Logger) -> None:
         threading.excepthook = _thread_hook
 
 
+def _set_logging_enabled(log: Logger, enabled: bool) -> None:
+    if enabled == log.is_enabled():
+        return
+    if enabled:
+        log.set_enabled(True)
+        _enable_faulthandler(log.log_path)
+        log.event("SYS", "Log", "enabled", f"path={log.log_path}")
+    else:
+        _disable_faulthandler()
+        log.set_enabled(False)
+
+
 def _enable_faulthandler(log_path: Path) -> None:
     global _faulthandler_file
+    _disable_faulthandler()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     _faulthandler_file = open(log_path, "a", encoding="utf-8")
     faulthandler.enable(_faulthandler_file)
+
+
+def _disable_faulthandler() -> None:
+    global _faulthandler_file
+    try:
+        faulthandler.disable()
+    except Exception:
+        pass
+    if _faulthandler_file:
+        try:
+            _faulthandler_file.close()
+        except Exception:
+            pass
+        _faulthandler_file = None
 
 
 def _shutdown_event_name() -> str:
@@ -532,7 +553,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        log = _app_state.get("log") or Logger(session_log_path(APP_NAME))
+        log = _app_state.get("log") or Logger(session_log_path(APP_NAME), enabled=False)
         log.event("SYS", "App", "fatal", f"err={exc}")
         log.close()
         raise

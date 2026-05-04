@@ -5,7 +5,7 @@ import queue
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
-from .timing import wait_ms_cancel
+from .timing import WaitProfile, wait_ms_cancel
 from .log import Logger
 from .winhook import start_hooks, stop_hooks
 
@@ -18,9 +18,12 @@ class HotkeyDef:
     on_start: Callable[[threading.Event], None]
     pass_through: bool = False
     on_event: Optional[Callable[[bool], None]] = None
+    on_release: Optional[Callable[[], None]] = None
 
 
 class HotkeyManager:
+    _CANCEL_WAIT_PROFILE = WaitProfile(long_ms=1, mid_ms=1, short_ms=0)
+
     def __init__(
         self,
         is_context_enabled: Callable[[], bool],
@@ -203,7 +206,11 @@ class HotkeyManager:
         return True
 
     def wait_ms_cancel(self, ms: int, key_name: str, stop_ev: threading.Event) -> bool:
-        return wait_ms_cancel(ms, lambda: stop_ev.is_set() or (not self.is_pressed(key_name)) or (not self.is_context_enabled()))
+        return wait_ms_cancel(
+            ms,
+            lambda: stop_ev.is_set() or (not self.is_pressed(key_name)) or (not self.is_context_enabled()),
+            self._CANCEL_WAIT_PROFILE,
+        )
 
     def _norm(self, key_name: str) -> str:
         norm = key_name.strip().lower()
@@ -297,6 +304,15 @@ class HotkeyManager:
             self._log_trigger(hk, name, is_down, "start")
             self.spawn_if_needed(hk.id, hk.on_start)
 
+    def _release_outputs_for_trigger(self, name: str) -> None:
+        event_norm = self._norm(name)
+        for hk in self._defs.values():
+            if not hk.is_enabled or not hk.on_release:
+                continue
+            binding_norm = self._norm(hk.key_name)
+            if self._match_key(binding_norm, event_norm):
+                hk.on_release()
+
     def _event_loop(self) -> None:
         while not self._event_stop.is_set():
             try:
@@ -346,6 +362,8 @@ class HotkeyManager:
         if self._should_listen(name):
             should_block = self._should_block(name)
             self._set_key_down(name, is_down)
+            if not is_down:
+                self._release_outputs_for_trigger(name)
             self._event_q.put((name, is_down))
             if is_down:
                 self._log_hook_event("key", name, is_down, should_block)
@@ -368,6 +386,8 @@ class HotkeyManager:
             self._set_pressed(name, is_down)
             if is_down:
                 self._log_left_right_mouse_diag(name, should_block)
+        if not is_down:
+            self._release_outputs_for_trigger(name)
         if name in ("middle", "x1", "x2", "left", "right"):
             self.log.event(
                 "HK",

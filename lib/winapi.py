@@ -4,10 +4,12 @@ import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 import os
+import threading
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 psapi = ctypes.WinDLL("psapi", use_last_error=True)
+_send_input_lock = threading.Lock()
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 EVENT_SYSTEM_FOREGROUND = 0x0003
@@ -314,7 +316,8 @@ def _send_input(inputs: list[INPUT]) -> None:
     if not inputs:
         return
     arr = (INPUT * len(inputs))(*inputs)
-    user32.SendInput(len(inputs), ctypes.byref(arr), ctypes.sizeof(INPUT))
+    with _send_input_lock:
+        user32.SendInput(len(inputs), ctypes.byref(arr), ctypes.sizeof(INPUT))
 
 
 def _key_input(vk: int, flags: int) -> INPUT:
