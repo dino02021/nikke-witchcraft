@@ -99,15 +99,15 @@ def main() -> None:
     hk.define(HotkeyDef("ClickSeq1", settings.key_click1, settings.is_click1_enabled and binding_enabled,
                         lambda stop: actions.run_click("ClickSeq1", settings.key_click1, settings.click_btn1,
                                                        settings.click1_hold_ms, settings.click1_gap_ms, stop),
-                        on_release=lambda: actions.release_click_output_for_hotkey("ClickSeq1")))
+                        on_release=lambda: actions.request_release_click_output_for_hotkey("ClickSeq1")))
     hk.define(HotkeyDef("ClickSeq2", settings.key_click2, settings.is_click2_enabled and binding_enabled,
                         lambda stop: actions.run_click("ClickSeq2", settings.key_click2, settings.click_btn2,
                                                        settings.click2_hold_ms, settings.click2_gap_ms, stop),
-                        on_release=lambda: actions.release_click_output_for_hotkey("ClickSeq2")))
+                        on_release=lambda: actions.request_release_click_output_for_hotkey("ClickSeq2")))
     hk.define(HotkeyDef("ClickSeq3", settings.key_click3, settings.is_click3_enabled and binding_enabled,
                         lambda stop: actions.run_click("ClickSeq3", settings.key_click3, settings.click_btn3,
                                                        settings.click3_hold_ms, settings.click3_gap_ms, stop),
-                        on_release=lambda: actions.release_click_output_for_hotkey("ClickSeq3")))
+                        on_release=lambda: actions.request_release_click_output_for_hotkey("ClickSeq3")))
 
     hk.define(HotkeyDef("Jitter", settings.key_jitter, settings.is_jitter_enabled and binding_enabled,
                         lambda stop: actions.run_jitter(settings.key_jitter, stop)))
@@ -291,6 +291,7 @@ def _shutdown_app(root: tk.Tk, reason: str, icon=None) -> None:
         if actions:
             actions.release_click_outputs()
             actions.release_rhythm_preset2()
+            actions.close()
         fg_hook = getattr(root, "_fg_hook", None)
         if fg_hook:
             if log:

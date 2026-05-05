@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import threading
+import queue
 
 from .config import Settings
 from .hotkeys import HotkeyManager
@@ -13,6 +14,9 @@ class Actions:
         self.hk = hotkeys
         self._click_lock = threading.Lock()
         self._click_outputs_down: dict[str, dict[str, int]] = {}
+        self._release_q: queue.Queue[tuple[str, str] | None] = queue.Queue()
+        self._release_thread = threading.Thread(target=self._release_loop, daemon=True)
+        self._release_thread.start()
         self._rhythm_lock = threading.Lock()
         self._rhythm_triggers_down: set[str] = set()
         self._rhythm_outputs_down: set[str] = set()
@@ -114,6 +118,14 @@ class Actions:
                 winapi.send_mouse_up(btn_name)
         if down:
             self.hk.log.event("ACT", "ClickSeq", "releaseHotkey", f"id={hotkey_id} outputs={','.join(down)}")
+
+    def request_release_click_output_for_hotkey(self, hotkey_id: str) -> None:
+        self._release_q.put(("hotkey", hotkey_id))
+
+    def close(self) -> None:
+        self._release_q.put(None)
+        if self._release_thread.is_alive():
+            self._release_thread.join(timeout=1.0)
 
     def run_jitter(self, trigger_key: str, stop_ev: threading.Event) -> None:
         count = 0
@@ -235,6 +247,18 @@ class Actions:
 
     def _click(self, btn_name: str) -> None:
         winapi.send_mouse_click(btn_name)
+
+    def _release_loop(self) -> None:
+        while True:
+            item = self._release_q.get()
+            try:
+                if item is None:
+                    return
+                kind, value = item
+                if kind == "hotkey":
+                    self.release_click_output_for_hotkey(value)
+            finally:
+                self._release_q.task_done()
 
     def _hold_click(self, hotkey_id: str, btn_name: str) -> None:
         with self._click_lock:

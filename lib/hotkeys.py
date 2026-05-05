@@ -22,7 +22,7 @@ class HotkeyDef:
 
 
 class HotkeyManager:
-    _CANCEL_WAIT_PROFILE = WaitProfile(long_ms=1, mid_ms=1, short_ms=0)
+    _CANCEL_WAIT_PROFILE = WaitProfile(long_ms=14, mid_ms=1, short_ms=0)
 
     def __init__(
         self,
