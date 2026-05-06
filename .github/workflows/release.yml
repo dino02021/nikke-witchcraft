@@ -23,7 +23,7 @@ jobs:
           pip install pyinstaller
       - name: Build exe
         run: |
-          pyinstaller --noconsole --name NikkeWitchcraft --icon assets/app.ico --add-data "assets/app.ico;assets" --add-data "assets/app.png;assets" main.py
+          pyinstaller --noupx --noconsole --name NikkeWitchcraft --icon assets/app.ico --add-data "assets/app.ico;assets" --add-data "assets/app.png;assets" main.py
       - name: List dist
         run: |
           dir dist
